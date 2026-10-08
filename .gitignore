@@ -1,0 +1,27 @@
+# secrets and real data never leave this machine
+.env
+secrets/
+data/
+*.fit
+*.dump
+
+# python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# web
+web/node_modules/
+web/dist/
+web/dev-dist/
+
+# misc
+.DS_Store
+.streamlit/secrets.toml
+
+# personal planning notes stay local unless you choose to commit them
+ReferenceResources/

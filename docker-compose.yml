@@ -1,0 +1,101 @@
+# Personal Health & Training System
+#
+#   docker compose up -d                 # real system: db, api + tracker app, dashboard, scheduler
+#   docker compose --profile demo up -d  # sample-data copy on :8001 (app) and :8502 (dashboard)
+#
+# Python services use host networking so they can reach the host's Ollama on
+# 127.0.0.1:11434 and still bind only to localhost. Reach them from your phone
+# with `tailscale serve` (see README); nothing is exposed to the internet.
+
+x-python: &python
+  build:
+    context: .
+    dockerfile: docker/app.Dockerfile
+  image: healthtracker:latest
+  env_file: .env
+  network_mode: host
+  restart: unless-stopped
+  volumes:
+    - ./secrets/garmin:/secrets/garmin
+    - ./data/inbox:/data/inbox
+  environment:
+    GARMIN_TOKENSTORE: /secrets/garmin
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-health}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-health}
+      POSTGRES_DB: healthtracker
+      TZ: ${TZ:-America/Chicago}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-health} -d healthtracker"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    <<: *python
+    restart: "no"
+    command: ["healthtracker", "init-db"]
+
+  api:
+    <<: *python
+    command: ["sh", "-c", "uvicorn healthtracker.api.main:app --host $${BIND_HOST:-127.0.0.1} --port $${API_PORT:-8000}"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  dashboard:
+    <<: *python
+    command: ["sh", "-c", "streamlit run /app/src/healthtracker/dashboard/Today.py --server.address $${BIND_HOST:-127.0.0.1} --server.port $${DASHBOARD_PORT:-8501} --server.headless true --browser.gatherUsageStats false"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  scheduler:
+    <<: *python
+    command: ["supercronic", "-passthrough-logs", "/app/docker/crontab"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # ---------------------------------------------------------------- demo
+  demo-seed:
+    <<: *python
+    profiles: ["demo"]
+    restart: "no"
+    command: ["healthtracker", "demo", "--days", "180"]
+
+  demo-api:
+    <<: *python
+    profiles: ["demo"]
+    environment:
+      HT_DATABASE_URL: ${DEMO_DATABASE_URL:-postgresql://health:health@127.0.0.1:5432/healthtracker_demo}
+      LLM_ENABLED: "false"
+    command: ["sh", "-c", "uvicorn healthtracker.api.main:app --host $${BIND_HOST:-127.0.0.1} --port 8001"]
+    depends_on:
+      demo-seed:
+        condition: service_completed_successfully
+
+  demo-dashboard:
+    <<: *python
+    profiles: ["demo"]
+    environment:
+      HT_DATABASE_URL: ${DEMO_DATABASE_URL:-postgresql://health:health@127.0.0.1:5432/healthtracker_demo}
+    command: ["sh", "-c", "streamlit run /app/src/healthtracker/dashboard/Today.py --server.address $${BIND_HOST:-127.0.0.1} --server.port 8502 --server.headless true --browser.gatherUsageStats false"]
+    depends_on:
+      demo-seed:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
