@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import psycopg
 
-from healthtracker.db import execute, insert, upsert
+from healthtracker.db import execute, fetch_all, insert, upsert
 from healthtracker.ingest.raw import store_raw
 
 TZ = ZoneInfo("America/Chicago")
@@ -65,25 +65,6 @@ FOODS = [
     ("Bagel with cream cheese", "1", 140, 380, 12, 56, 11, 2, 7, 600, 0, 0, {"iron_mg": 3.5}),
     ("Turkey sandwich", "1", 250, 450, 30, 45, 15, 5, 6, 1300, 0, 0, {"iron_mg": 3}),
     ("Chocolate milk", "16 oz", 480, 380, 16, 60, 10, 2, 56, 300, 6, 0, {"calcium_mg": 560}),
-]
-
-EXERCISES = [
-    # name, pattern, main, [(muscle, role, credit)]
-    ("Back squat", "squat", True, [("quads", "primary", 1), ("glutes", "primary", 1), ("adductors", "secondary", .5)]),
-    ("Deadlift", "hinge", True, [("hamstrings", "primary", 1), ("glutes", "primary", 1), ("upper_back", "secondary", .5)]),
-    ("Romanian deadlift", "hinge", False, [("hamstrings", "primary", 1), ("glutes", "secondary", .5)]),
-    ("Bulgarian split squat", "lunge", False, [("quads", "primary", 1), ("glutes", "primary", 1)]),
-    ("Standing calf raise", "other", False, [("calves", "primary", 1)]),
-    ("Copenhagen plank", "core", False, [("adductors", "primary", 1), ("core", "secondary", .5)]),
-    ("Nordic curl", "hinge", False, [("hamstrings", "primary", 1)]),
-    ("Bench press", "horizontal_push", True, [("chest", "primary", 1), ("triceps", "secondary", .5), ("shoulders", "secondary", .5)]),
-    ("Overhead press", "vertical_push", True, [("shoulders", "primary", 1), ("triceps", "secondary", .5)]),
-    ("Barbell row", "horizontal_pull", False, [("upper_back", "primary", 1), ("lats", "secondary", .5), ("biceps", "secondary", .5)]),
-    ("Pull-up", "vertical_pull", False, [("lats", "primary", 1), ("biceps", "secondary", .5)]),
-    ("Dumbbell curl", "other", False, [("biceps", "primary", 1)]),
-    ("Triceps pushdown", "other", False, [("triceps", "primary", 1)]),
-    ("Plank", "core", False, [("core", "primary", 1)]),
-    ("Box jump", "plyometric", False, [("quads", "secondary", .5), ("calves", "secondary", .5)]),
 ]
 
 
@@ -152,12 +133,8 @@ class Generator:
                 "name": name, "serving_desc": sdesc, "serving_g": g, "kcal": kcal, "protein_g": p,
                 "carbs_g": cb, "fat_g": fat, "fiber_g": fib, "sugar_g": sug, "sodium_mg": na,
                 "caffeine_mg": caf, "alcohol_g": alc, "micros": micros, "origin": "manual", "verified": True})
-        for name, pattern, main, muscles in EXERCISES:
-            eid = insert(c, "core.exercise", {"name": name, "movement_pattern": pattern, "is_main_lift": main})
-            self.ex_ids[name] = eid
-            for m, role, credit in muscles:
-                insert(c, "core.exercise_muscle", {"exercise_id": eid, "muscle_group": m, "role": role,
-                                                   "set_credit": credit}, returning=None)
+        # The exercise library is seeded by migration 003.
+        self.ex_ids = {r["name"]: r["id"] for r in fetch_all(c, "SELECT id, name FROM core.exercise")}
         sm = insert(c, "core.saved_meal", {"name": "Usual breakfast"})
         for item, servings in (("Rolled oats", 2), ("Banana", 1), ("Whey protein", 1), ("Coffee, brewed", 1)):
             insert(c, "core.saved_meal_item", {"saved_meal_id": sm, "catalog_id": self.food_ids[item],

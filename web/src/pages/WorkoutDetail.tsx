@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, type Exercise, type LiftSet, type Workout } from "../api";
 import { Chips, Empty, Icon, Scale, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { dayLabel } from "../dates";
+import { groupByMuscle, MUSCLE_ORDER, muscleLabel, muscleSummary } from "../exercises";
 import { distUnit, fmtDuration, fromKg, showDistance, showPace, showWeight, toKg, weightStep, weightUnit } from "../units";
 
 export default function WorkoutDetail() {
@@ -180,8 +181,6 @@ function SetSheet({ workoutId, exercise, units, lastInSession, onClose, onSaved 
 
 const PATTERNS = ["squat", "hinge", "lunge", "horizontal_push", "vertical_push", "horizontal_pull", "vertical_pull",
   "carry", "core", "plyometric", "other"] as const;
-const MUSCLES = ["quads", "hamstrings", "glutes", "calves", "adductors", "chest", "upper_back", "lats", "shoulders",
-  "biceps", "triceps", "core"];
 
 function ExercisePicker({ onClose, onPick }: { onClose: () => void; onPick: (e: Exercise) => void }) {
   const run = useRun();
@@ -193,8 +192,13 @@ function ExercisePicker({ onClose, onPick }: { onClose: () => void; onPick: (e: 
   const [primary, setPrimary] = useState<string[]>([]);
   const [secondary, setSecondary] = useState<string[]>([]);
   const [main, setMain] = useState(false);
-  const list = (data ?? []).filter((e) => e.name.toLowerCase().includes(q.toLowerCase()))
-    .sort((a, b) => (b.last_used ?? "").localeCompare(a.last_used ?? ""));
+  const needle = q.trim().toLowerCase();
+  const list = (data ?? []).filter((e) => !needle || e.name.toLowerCase().includes(needle)
+    || e.muscles.some((m) => m.muscle_group.replace("_", " ").includes(needle)));
+  const recent = needle ? [] : list.filter((e) => e.last_used)
+    .sort((a, b) => b.last_used!.localeCompare(a.last_used!)).slice(0, 5);
+  const sections: [string, Exercise[]][] = [...(recent.length ? [["Recent", recent] as [string, Exercise[]]] : []),
+    ...groupByMuscle(list).map(([g, es]) => [muscleLabel(g), es] as [string, Exercise[]])];
 
   const cycle = (m: string) => {
     if (primary.includes(m)) { setPrimary(primary.filter((x) => x !== m)); setSecondary([...secondary, m]); }
@@ -207,16 +211,20 @@ function ExercisePicker({ onClose, onPick }: { onClose: () => void; onPick: (e: 
       {!creating ? (
         <div className="stack">
           <input autoFocus placeholder="Search exercises" value={q} onChange={(e) => setQ(e.target.value)} />
-          <div className="list">
-            {list.map((e) => (
-              <button key={e.id} className="list-row button" onClick={() => onPick(e)}>
-                <div className="grow">
-                  <div className="title">{e.name}{e.is_main_lift && <span className="badge" style={{ marginLeft: 6 }}>main</span>}</div>
-                  <div className="meta">{e.muscles.filter((m) => m.role === "primary").map((m) => m.muscle_group.replace("_", " ")).join(", ")}</div>
-                </div>
-              </button>
-            ))}
-          </div>
+          {sections.map(([title, es]) => (
+            <div key={title} className="list">
+              <div className="list-head"><span>{title}</span><span>{es.length}</span></div>
+              {es.map((e) => (
+                <button key={e.id} className="list-row button" onClick={() => onPick(e)}>
+                  <div className="grow">
+                    <div className="title">{e.name}{e.is_main_lift && <span className="badge" style={{ marginLeft: 6 }}>main</span>}</div>
+                    <div className="meta">{muscleSummary(e)}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ))}
+          {needle && list.length === 0 && <Empty>No match. Create it below.</Empty>}
           <button className="btn" onClick={() => setCreating(true)}><Icon name="plus" size={18} /> {q ? `Create "${q}"` : "New exercise"}</button>
         </div>
       ) : (
@@ -225,11 +233,11 @@ function ExercisePicker({ onClose, onPick }: { onClose: () => void; onPick: (e: 
           <label className="field">Movement pattern<Chips options={PATTERNS} value={pattern} onChange={setPattern} /></label>
           <div className="field">Muscles <span className="muted">(tap once = primary, twice = secondary)</span>
             <div className="row wrap">
-              {MUSCLES.map((m) => (
+              {MUSCLE_ORDER.map((m) => (
                 <button key={m} type="button" onClick={() => cycle(m)}
                         className={`chip${primary.includes(m) ? " on" : ""}`}
                         style={secondary.includes(m) ? { borderColor: "var(--pine-2)", borderStyle: "dashed" } : undefined}>
-                  {m.replace("_", " ")}{secondary.includes(m) ? " ½" : ""}
+                  {muscleLabel(m)}{secondary.includes(m) ? " ½" : ""}
                 </button>
               ))}
             </div>

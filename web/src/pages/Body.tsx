@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Exercise, type Injury, type Journal } from "../api";
+import { groupByMuscle, muscleLabel } from "../exercises";
 import { Chips, Empty, Icon, Scale, ScaleRow, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { dayLabel, isoDate, toLocalInput } from "../dates";
 import { fromKg, showWeight, weightUnit } from "../units";
@@ -243,7 +244,11 @@ function RestrictionSheet({ injury, onClose }: { injury: Injury; onClose: () => 
         {type === "exercise" ? (
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="">Choose an exercise</option>
-            {exercises?.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            {groupByMuscle(exercises ?? []).map(([g, es]) => (
+              <optgroup key={g} label={muscleLabel(g)}>
+                {es.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </optgroup>
+            ))}
           </select>
         ) : (
           <div className="row wrap">
