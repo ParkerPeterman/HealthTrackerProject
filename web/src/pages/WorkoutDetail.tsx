@@ -188,6 +188,9 @@ function ExercisePicker({ onClose, onPick }: { onClose: () => void; onPick: (e: 
   const { data } = useQuery({ queryKey: ["exercises"], queryFn: () => api.get<Exercise[]>("/exercises") });
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
+  // Muscle groups start collapsed; Recent starts open. A search expands everything.
+  const [open, setOpen] = useState<Set<string>>(new Set(["Recent"]));
+  const toggle = (t: string) => setOpen((o) => { const n = new Set(o); if (n.has(t)) n.delete(t); else n.add(t); return n; });
   const [pattern, setPattern] = useState<(typeof PATTERNS)[number]>("other");
   const [primary, setPrimary] = useState<string[]>([]);
   const [secondary, setSecondary] = useState<string[]>([]);
@@ -211,10 +214,15 @@ function ExercisePicker({ onClose, onPick }: { onClose: () => void; onPick: (e: 
       {!creating ? (
         <div className="stack">
           <input autoFocus placeholder="Search exercises" value={q} onChange={(e) => setQ(e.target.value)} />
-          {sections.map(([title, es]) => (
+          {sections.map(([title, es]) => {
+            const isOpen = !!needle || open.has(title);
+            return (
             <div key={title} className="list">
-              <div className="list-head"><span>{title}</span><span>{es.length}</span></div>
-              {es.map((e) => (
+              <button type="button" className="list-head group-toggle" aria-expanded={isOpen} onClick={() => toggle(title)}>
+                <span>{title}</span>
+                <span className="row" style={{ gap: 6 }}>{es.length}<Icon name="chevron" size={14} /></span>
+              </button>
+              {isOpen && es.map((e) => (
                 <button key={e.id} className="list-row button" onClick={() => onPick(e)}>
                   <div className="grow">
                     <div className="title">{e.name}{e.is_main_lift && <span className="badge" style={{ marginLeft: 6 }}>main</span>}</div>
@@ -223,7 +231,8 @@ function ExercisePicker({ onClose, onPick }: { onClose: () => void; onPick: (e: 
                 </button>
               ))}
             </div>
-          ))}
+            );
+          })}
           {needle && list.length === 0 && <Empty>No match. Create it below.</Empty>}
           <button className="btn" onClick={() => setCreating(true)}><Icon name="plus" size={18} /> {q ? `Create "${q}"` : "New exercise"}</button>
         </div>
