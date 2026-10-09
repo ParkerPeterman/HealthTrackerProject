@@ -70,9 +70,3 @@ class Display:
             return None
         s = pace_s_per_km_to_s_per_mi(s_per_km) if self.imperial else s_per_km
         return f"{fmt_pace(s)}{self.pace_unit}"
-
-    def per_weight(self, g_per_kg: float | None, nd: int = 2) -> float | None:
-        """Grams per kg -> grams per lb when imperial."""
-        if g_per_kg is None:
-            return None
-        return round(g_per_kg * KG_PER_LB if self.imperial else g_per_kg, nd)

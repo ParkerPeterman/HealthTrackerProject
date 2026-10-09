@@ -167,3 +167,18 @@ def test_muscle_recovery_detects_clash():
              "focus_muscles": ["quads", "chest"]}]
     r = catalog.train_muscle_recovery(ctx(hard_sets=hs, planned=plan), {"min_hours": 48})
     assert r.fired and r.details["clash"] == ["quads"]
+
+
+def test_micro_gap_ignores_nutrients_without_label_data():
+    days = [D - timedelta(days=i) for i in range(1, 8)]
+    nd = pd.DataFrame({"date": days * 2, "nutrient": ["fiber_g"] * 7 + ["iron_mg"] * 7,
+                       "amount": [20.0] * 7 + [2.0] * 7})
+    targets = [{"nutrient": n, "basis": "per_day", "evaluation": "weekly_avg", "min_value": v, "max_value": None}
+               for n, v in (("fiber_g", 38), ("iron_mg", 8))]
+    p = {"min_logged_days": 4}
+    full = catalog.nutr_micro_gap(ctx(nutrients_daily=nd, nutrient_targets=targets), p)
+    assert {g["nutrient"] for g in full.details["gaps"]} == {"fiber_g", "iron_mg"}
+    sparse = catalog.nutr_micro_gap(ctx(nutrients_daily=nd, nutrient_targets=targets,
+                                        nutrient_coverage={"fiber_g": 1.0, "iron_mg": 0.3}), p)
+    assert [g["nutrient"] for g in sparse.details["gaps"]] == ["fiber_g"]
+    assert sparse.details["low_data_coverage"] == ["iron_mg"]

@@ -121,8 +121,11 @@ def nutr_micro_gap(ctx: RuleContext, p: dict) -> RuleResult:
     days = week["date"].nunique()
     if days < p["min_logged_days"]:
         return RuleResult(False, status="no_data", details={"logged_days": int(days)})
-    gaps = []
+    gaps, unknown = [], []
     for t in weekly:
+        if ctx.nutrient_coverage is not None and ctx.nutrient_coverage.get(t["nutrient"], 0.0) < 0.7:
+            unknown.append(t["nutrient"])  # too little label data to call it a gap
+            continue
         amounts = week[week["nutrient"] == t["nutrient"]].groupby("date")["amount"].sum()
         avg = float(amounts.sum() / days)  # days with none of it count as zero intake
         if t["min_value"] is not None and avg < t["min_value"]:
@@ -131,7 +134,7 @@ def nutr_micro_gap(ctx: RuleContext, p: dict) -> RuleResult:
         elif t["max_value"] is not None and avg > t["max_value"]:
             gaps.append({"nutrient": t["nutrient"], "avg": round(avg, 1), "target": t["max_value"],
                          "kind": "high", "shortfall": avg / t["max_value"] - 1})
-    details = {"logged_days": int(days), "gaps": gaps}
+    details = {"logged_days": int(days), "gaps": gaps, "low_data_coverage": unknown}
     if not gaps:
         return RuleResult(False, details=details)
     actions = []

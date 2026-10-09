@@ -83,6 +83,29 @@ def nutrients_daily(conn: psycopg.Connection, start: date, end: date) -> pd.Data
     return df
 
 
+def nutrient_coverage(conn: psycopg.Connection, start: date, end: date) -> dict[str, float]:
+    """Share of logged calories (complete days) from foods that record each nutrient.
+
+    Foods without a value count as zero intake, so a low share means a "gap" may just be
+    missing label data (common for Open Food Facts items).
+    """
+    rows = fetch_all(
+        conn,
+        """WITH e AS (
+             SELECT n.servings * coalesce(c.kcal, 0) AS kcal, c.fiber_g, c.sodium_mg, c.sugar_g, c.micros
+             FROM core.food_entry n JOIN core.food_catalog c ON c.id = n.catalog_id
+             JOIN core.food_day_status s ON s.date = n.date AND s.complete
+             WHERE n.date BETWEEN %s AND %s),
+           t AS (SELECT nullif(sum(kcal), 0) AS total FROM e)
+           SELECT 'fiber_g' AS nutrient, sum(kcal) FILTER (WHERE fiber_g IS NOT NULL) / (SELECT total FROM t) AS share FROM e
+           UNION ALL SELECT 'sodium_mg', sum(kcal) FILTER (WHERE sodium_mg IS NOT NULL) / (SELECT total FROM t) FROM e
+           UNION ALL SELECT 'sugar_g', sum(kcal) FILTER (WHERE sugar_g IS NOT NULL) / (SELECT total FROM t) FROM e
+           UNION ALL SELECT k.key, sum(e.kcal) / (SELECT total FROM t)
+           FROM e, jsonb_object_keys(coalesce(e.micros, '{}'::jsonb)) AS k(key) GROUP BY k.key""",
+        (start, end))
+    return {r["nutrient"]: float(r["share"] or 0) for r in rows}
+
+
 def build_context(conn: psycopg.Connection, d: date) -> RuleContext:
     profile = load_profile(conn)
     tz = profile.timezone
@@ -154,6 +177,7 @@ def build_context(conn: psycopg.Connection, d: date) -> RuleContext:
         injuries=load_injuries(conn, d),
         nutrient_targets=targets,
         nutrients_daily=nutrients_daily(conn, d - timedelta(days=14), d),
+        nutrient_coverage=nutrient_coverage(conn, d - timedelta(days=7), d - timedelta(days=1)),
         lift_progress=lift_progress,
         experiments=experiments,
         typical_wake_hour=typical_wake,

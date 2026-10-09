@@ -58,6 +58,7 @@ class RuleContext:
     injuries: list[dict] = field(default_factory=list)  # with "checkins" and "restrictions" lists
     nutrient_targets: list[dict] = field(default_factory=list)
     nutrients_daily: pd.DataFrame = field(default_factory=pd.DataFrame)  # date, nutrient, amount (complete days)
+    nutrient_coverage: dict[str, float] | None = None  # share of kcal from foods recording each nutrient
     lift_progress: pd.DataFrame = field(default_factory=pd.DataFrame)  # date, exercise_id, name, best_e1rm_kg
     experiments: list[dict] = field(default_factory=list)
     typical_wake_hour: float | None = None  # median local wake time, last 14 nights

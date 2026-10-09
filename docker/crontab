@@ -1,0 +1,10 @@
+# Times are local (the container's TZ, from .env).
+#
+# "Nightly" runs in the morning: last night's sleep and HRV only exist after
+# the watch syncs when you wake up. It runs twice to catch a late sync; every
+# step is an upsert, so the second run just refreshes.
+30 7 * * *   healthtracker nightly
+30 10 * * *  healthtracker nightly
+
+# Weekly learning loop: insights, tuning proposals, experiments, next week's plan.
+0 20 * * 0   healthtracker weekly

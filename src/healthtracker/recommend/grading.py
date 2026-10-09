@@ -11,7 +11,12 @@ from datetime import date, timedelta
 import psycopg
 
 from healthtracker.db import execute, fetch_all
-from healthtracker.recommend.metrics import OUTCOME_DIRECTION, MetricResolver, compare, split_outcome
+from healthtracker.recommend.metrics import (
+    OUTCOME_DIRECTION,
+    MetricResolver,
+    compare,
+    split_outcome,
+)
 
 
 def grade_actions(conn: psycopg.Connection, as_of: date, lookback_days: int = 10,
