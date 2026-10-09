@@ -1,0 +1,12 @@
+[client]
+toolbarMode = "viewer"
+
+[theme]
+primaryColor = "#2f5a47"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

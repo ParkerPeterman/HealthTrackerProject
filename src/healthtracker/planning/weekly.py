@@ -202,9 +202,9 @@ def plan_week(conn: psycopg.Connection, week_start: date) -> dict:
 
 
 def render_plan(plan: dict) -> str:
-    lines = [f"**Plan for the week of {plan['week_start']:%b %d}**",
+    lines = [f"**Plan for the week of {plan['week_start']:%b %d}**", "",
              f"Target load {plan['target_load']} (your 4-week weekly average is {plan['chronic_weekly_load']}; "
-             f"{plan['reason']}). Planned: {plan['planned_load']}."]
+             f"{plan['reason']}). Planned: {plan['planned_load']}.", ""]
     by_day: dict[date, list[str]] = {}
     for s in plan["fixed"]:
         by_day.setdefault(s["date"], []).append(f"{s['session_type']} {s['sport']}".replace("game ultimate", "ultimate game"))

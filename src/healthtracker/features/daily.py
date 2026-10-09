@@ -349,7 +349,9 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     # baselines vs my own history (exclusion and injury days skipped)
     eligible = ~(df["exclude_from_baseline"] | df["injury_active"])
     hrv_clean = df["hrv"].where(eligible).dropna()
-    df["hrv_7d_avg"] = hrv_clean.rolling(7, min_periods=3).mean().reindex(df.index).ffill(limit=7).round(1)
+    # The 7-day line is a short display trend: it skips sick/travel days but keeps injury days.
+    hrv_trend = df["hrv"].where(~df["exclude_from_baseline"]).dropna()
+    df["hrv_7d_avg"] = hrv_trend.rolling(7, min_periods=3).mean().reindex(df.index).ffill(limit=3).round(1)
     df["hrv_30d_avg"] = hrv_clean.rolling(30, min_periods=10).mean().reindex(df.index).ffill(limit=30).round(1)
     m, sd = _prior_baseline(df["hrv"], eligible, 30, 10)
     df["hrv_z_30d"] = _z(df["hrv"], m, sd)

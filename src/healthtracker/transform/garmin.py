@@ -76,11 +76,16 @@ def _nonneg(v: Any) -> int | None:
 
 
 def normalize_rpe(v: Any) -> int | None:
-    """Garmin stores perceived effort as 10..100 (10 per step); some payloads use 1..10."""
+    """Garmin's directWorkoutRpe is 10..100 in steps of 10 (10 = RPE 1).
+
+    Values 1..9 that aren't multiples of 10 are taken as already on the 1..10 scale.
+    VERIFY against real payloads (plan open question #2); raw values stay in raw.ingest,
+    so a fix here plus a re-run of `healthtracker backfill` corrects history.
+    """
     f = _num(v)
     if f is None or f <= 0:
         return None
-    if f > 10:
+    if f >= 10:
         f = f / 10
     return max(1, min(10, int(round(f))))
 

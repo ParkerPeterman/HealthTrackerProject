@@ -587,4 +587,7 @@ def generate(conn: psycopg.Connection, days: int = 180, end: date | None = None,
     counts = gen.run()
     # Phase-2 style: the fixed-target starter rules are live in the demo.
     execute(conn, "UPDATE analytics.rule SET status = 'active' WHERE rule_id = ANY(%s)", (list(DEMO_ACTIVE_RULES),))
+    # Start the caffeine cutoff at a guess (16:00): the weekly job should find 14:00 in the data.
+    execute(conn, """UPDATE analytics.rule_parameter SET value = 16
+                     WHERE rule_id = 'SLEEP_CAFFEINE_CUTOFF' AND name = 'cutoff_hour'""")
     return {"start": gen.start, "end": gen.end, **counts}

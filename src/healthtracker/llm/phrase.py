@@ -133,10 +133,11 @@ def render(sections: dict[str, dict], payloads: dict[str, dict]) -> str:
     for g in ("training", "nutrition"):
         sec = sections[g]
         texts = {a["id"]: a["text"] for a in payloads[g]["actions"]}
-        out.append(f"**{titles[g]}**\n{sec['summary'].strip()}")
+        out.append(f"**{titles[g]}**\n\n{sec['summary'].strip()}\n")
         for item in sec["items"]:
             msg = item.get("message") or texts.get(item["action_id"], "")
             out.append(f"- {msg.strip()}")
+        out.append("")
     return "\n".join(out).strip()
 
 

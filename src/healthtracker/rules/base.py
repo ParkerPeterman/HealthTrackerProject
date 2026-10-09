@@ -89,7 +89,8 @@ class RuleContext:
     def window(self, start: date, end: date) -> pd.DataFrame:
         if self.features.empty:
             return self.features
-        return self.features[(self.features.index >= start) & (self.features.index <= end)]
+        f = self.features
+        return f[(f.index >= start) & (f.index <= end)].sort_index()
 
     def planned_on(self, d: date) -> list[dict]:
         return [p for p in self.planned if p["date"] == d and p["status"] != "skipped"]
