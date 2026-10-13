@@ -13,7 +13,7 @@ export default function Food() {
   const [date, setDate] = useState(isoDate());
   const qc = useQueryClient();
   const run = useRun();
-  const { data } = useQuery({ queryKey: ["food-day", date], queryFn: () => api.get<FoodDay>(`/food-day/${date}`) });
+  const { data, isLoading, error } = useQuery({ queryKey: ["food-day", date], queryFn: () => api.get<FoodDay>(`/food-day/${date}`) });
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<FoodEntry | null>(null);
   const refresh = useCallback(() => {
@@ -49,6 +49,9 @@ export default function Food() {
                 onClick={() => setDate(addDays(date, 1))}><Icon name="chevron" size={20} /></button>
       </header>
 
+      {/* Without the day's data, zeros and "nothing logged" would read as real. */}
+      {isLoading ? <div className="empty">Loading…</div>
+        : error || !data ? <Empty>Can't reach the server. Is the API running?</Empty> : <>
       <section className="card stack" aria-label="Totals" style={{ gap: 18 }}>
         <div className="row" style={{ gap: 20 }}>
           <Ring value={kcal} max={kcalT?.min ?? kcalT?.max ?? 2500} size={136} stroke={11} hue="food"
@@ -62,10 +65,11 @@ export default function Food() {
         <Macro label="Protein" hue="protein" value={t.protein_g} unit="g" target={target("protein_g")} />
         <Macro label="Fiber" hue="hrv" value={t.fiber_g} unit="g" target={target("fiber_g")} />
         <div className="grid3">
-          <Stat label="Carbs" value={`${round(t.carbs_g)} g`} />
-          <Stat label="Fat" value={`${round(t.fat_g)} g`} />
-          <Stat label={t.alcohol_g > 0 ? "Drinks" : "Caffeine"}
-                value={t.alcohol_g > 0 ? (t.alcohol_g / 14).toFixed(1) : `${round(t.caffeine_mg)} mg`} />
+          <Stat label="Carbs" value={String(round(t.carbs_g))} unit="g" />
+          <Stat label="Fat" value={String(round(t.fat_g))} unit="g" />
+          {t.alcohol_g > 0
+            ? <Stat label="Drinks" value={(t.alcohol_g / 14).toFixed(1)} />
+            : <Stat label="Caffeine" value={String(round(t.caffeine_mg))} unit="mg" />}
         </div>
       </section>
 
@@ -98,12 +102,13 @@ export default function Food() {
           <span style={{ fontWeight: 550 }}>This day's log is complete</span>
           <span className="tiny muted" style={{ display: "block", marginTop: 2 }}>Only complete days count in nutrition stats, so a missed meal never reads as zero.</span>
         </span>
-        <input type="checkbox" className="switch" checked={data?.complete ?? false}
+        <input type="checkbox" className="switch" checked={data.complete}
                onChange={(e) => run(async () => {
                  await api.put(`/food-day/${date}/complete`, { complete: e.target.checked });
                  refresh();
                })} />
       </label>
+      </>}
 
       {adding && <AddFoodSheet date={date} onClose={() => setAdding(false)} onAdded={refresh} />}
       {editing && <EditEntrySheet entry={editing} onClose={() => setEditing(null)} onSaved={refresh} />}
@@ -133,11 +138,11 @@ function CalorieStatus({ kcal, target }: { kcal: number; target?: Range }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, unit }: { label: string; value: string; unit?: string }) {
   return (
     <div className="tile" style={{ padding: "10px 12px" }}>
       <div className="label">{label}</div>
-      <div className="display-num" style={{ marginTop: 4 }}>{value}</div>
+      <div className="display-num" style={{ marginTop: 4 }}>{value}{unit && <small>{unit}</small>}</div>
     </div>
   );
 }

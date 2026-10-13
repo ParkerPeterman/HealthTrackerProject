@@ -14,10 +14,10 @@ export default function Train() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const today = isoDate();
-  const { data: workouts } = useQuery({
+  const { data: workouts, error: workoutsError } = useQuery({
     queryKey: ["workouts"], queryFn: () => api.get<Workout[]>(`/workouts?start=${addDays(today, -21)}&end=${today}`),
   });
-  const { data: planned } = useQuery({
+  const { data: planned, error: plannedError } = useQuery({
     queryKey: ["planned"], queryFn: () => api.get<Planned[]>(`/planned?start=${today}&end=${addDays(today, 13)}`),
   });
 
@@ -43,9 +43,9 @@ export default function Train() {
 
       <section className="card" aria-label="Last 7 days">
         <div className="grid3">
-          <WeekStat label="Sessions" value={String(week.length)} />
-          <WeekStat label="Time" value={weekMin >= 60 ? `${Math.floor(weekMin / 60)}h ${String(Math.round(weekMin % 60)).padStart(2, "0")}` : `${Math.round(weekMin)}m`} />
-          <WeekStat label="Load" value={Math.round(weekLoad).toLocaleString()} />
+          <WeekStat label="Sessions" value={workouts ? String(week.length) : "–"} />
+          <WeekStat label="Time" value={!workouts ? "–" : weekMin >= 60 ? `${Math.floor(weekMin / 60)}h ${String(Math.round(weekMin % 60)).padStart(2, "0")}` : `${Math.round(weekMin)}m`} />
+          <WeekStat label="Load" value={workouts ? Math.round(weekLoad).toLocaleString() : "–"} />
         </div>
       </section>
 
@@ -72,7 +72,8 @@ export default function Train() {
         <button className="btn small" onClick={() => setSheet("plan")} style={{ marginTop: 16 }}><Icon name="plus" size={16} /> Plan</button>
       </div>
       <div className="list">
-        {byDay.size === 0 && <div className="list-row muted small">Nothing planned. Add your games; the weekly job plans around them.</div>}
+        {!planned && <div className="list-row muted small">{plannedError ? "Can't reach the server." : "Loading…"}</div>}
+        {planned && byDay.size === 0 && <div className="list-row muted small">Nothing planned. Add your games; the weekly job plans around them.</div>}
         {[...byDay.entries()].map(([d, items]) => (
           <div key={d}>
             <div className="list-head"><span>{dayLabel(d, today)}</span></div>
@@ -99,7 +100,8 @@ export default function Train() {
 
       <h3 className="section-title">Recent workouts</h3>
       <div className="list">
-        {!workouts?.length && <Empty>No workouts in the last three weeks.</Empty>}
+        {!workouts && <Empty>{workoutsError ? "Can't reach the server. Is the API running?" : "Loading…"}</Empty>}
+        {workouts?.length === 0 && <Empty>No workouts in the last three weeks.</Empty>}
         {workouts?.map((w) => {
           const look = sessionLook(w.is_game ? "game" : w.sport === "strength" ? "strength" : (w.rpe ?? 0) >= 7 ? "hard" : "easy", w.sport);
           return (

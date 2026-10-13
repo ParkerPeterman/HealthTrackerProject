@@ -130,7 +130,7 @@ function WeightGoalCard({ goal, units, onEdit }: { goal: Goal; units: Units; onE
             {protein?.basis === "per_kg_bodyweight" && protein.min_value ? ` · ${protein.min_value} g/kg protein` : ""}
           </span>
         </span>
-        <span className="tiny muted">{kcal?.source_ref?.startsWith("weight goal") ? "from this goal" : "edit to set"}</span>
+        <span className="tiny muted" style={{ whiteSpace: "nowrap" }}>{kcal?.source_ref?.startsWith("weight goal") ? "from this goal" : "edit to set"}</span>
       </div>
     </button>
   );

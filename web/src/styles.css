@@ -68,7 +68,8 @@
   font-family: var(--font-ui);
   font-size: 16px;
   line-height: 1.45;
-  font-feature-settings: "ss01", "tnum" 0;
+  /* No "tnum" here: font-feature-settings is inherited and would override every tabular-nums below. */
+  font-feature-settings: "ss01";
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
 }
@@ -93,7 +94,8 @@ h1 { font-size: calc(1.9rem * var(--display-scale)); }
 h1.compact { font-size: calc(1.5rem * var(--display-scale)); }
 h2 { font-size: calc(1.25rem * var(--display-scale)); }
 h3 { font-size: calc(1.08rem * var(--display-scale)); }
-.display-num { font-family: var(--font-display); font-weight: var(--display-weight); font-size: calc(1.2rem * var(--display-scale)); letter-spacing: var(--display-tracking); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.display-num { font-family: var(--font-display); font-weight: var(--display-weight); font-size: calc(1.2rem * var(--display-scale)); letter-spacing: var(--display-tracking); line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.display-num small { font-family: var(--font-ui); font-size: 0.75rem; font-weight: 500; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 ::selection { background: color-mix(in srgb, var(--signal) 35%, transparent); }
 
@@ -264,6 +266,7 @@ a.btn { text-decoration: none; color: inherit; }
 .btn.danger { color: var(--bad); }
 .btn.small { min-height: 36px; padding: 0 14px; font-size: 0.85rem; }
 .btn.block { width: 100%; }
+.btn.nowrap { white-space: nowrap; padding: 0 14px; }
 .icon-btn { width: 42px; height: 42px; min-height: 42px; padding: 0; border-radius: 50%; }
 
 .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
@@ -287,6 +290,8 @@ textarea { min-height: 76px; resize: vertical; }
 input[type="checkbox"] { width: 20px; min-height: 20px; height: 20px; accent-color: var(--switch-on); flex: none; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+/* Keep side-by-side inputs level when one label wraps to two lines. */
+.grid2 > .field, .grid3 > .field { justify-content: space-between; }
 
 /* iOS-style switch for checkboxes that toggle a state */
 input[type="checkbox"].switch {

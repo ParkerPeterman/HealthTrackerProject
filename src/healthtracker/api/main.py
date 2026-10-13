@@ -33,7 +33,11 @@ if dist.exists():
     def spa(path: str):
         if path.startswith("api/"):
             return JSONResponse({"detail": "not found"}, status_code=404)
+        # The shell, service worker, manifest, and icons keep their names across builds, so the
+        # phone must revalidate them or it keeps running (and showing) the previous version.
+        # Hashed files under /assets never change and can be cached as long as the browser likes.
+        fresh = {"Cache-Control": "no-cache"}
         file = dist / path
         if path and file.is_file():
-            return FileResponse(file)
-        return FileResponse(dist / "index.html")
+            return FileResponse(file, headers=fresh)
+        return FileResponse(dist / "index.html", headers=fresh)

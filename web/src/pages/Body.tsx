@@ -56,7 +56,7 @@ export default function Body() {
                                                         startDate: weightGoal.start_date,
                                                         perWeek: weightGoal.rate_per_week != null ? fromKg(weightGoal.rate_per_week, units) : null,
                                                       }} />
-          : <Empty>Log a morning weight on the Today tab.</Empty>}
+          : <Empty>{weights ? "Log a morning weight on the Today tab." : "Loading…"}</Empty>}
         <p className="tiny muted" style={{ margin: "6px 0 0" }}>
           Dots are scale readings; the line is the smoothed trend.{weightGoal ? " Dashed: your goal and its planned path." : ""}
         </p>
@@ -66,7 +66,7 @@ export default function Body() {
         <h3 className="section-title">Injuries</h3>
         <button className="btn small" onClick={() => setSheet("injury")} style={{ marginTop: 16 }}><Icon name="plus" size={16} /> New</button>
       </div>
-      {active.length === 0 && <div className="card tight small muted">No active injuries.</div>}
+      {injuries && active.length === 0 && <div className="card tight small muted">No active injuries.</div>}
       {active.map((i) => {
         const label = `${i.side && i.side !== "n/a" ? i.side + " " : ""}${i.body_part}`;
         return (
@@ -101,10 +101,10 @@ export default function Body() {
               </div>
             )}
             <div className="row">
-              <button className={`btn grow ${i.checked_in_today ? "" : "primary"}`} onClick={() => setSheet({ checkin: i.id, label })}>
-                {i.checked_in_today ? "Update check-in" : "Daily check-in"}
+              <button className={`btn grow nowrap ${i.checked_in_today ? "" : "primary"}`} onClick={() => setSheet({ checkin: i.id, label })}>
+                {i.checked_in_today ? "Edit check-in" : "Check in"}
               </button>
-              <button className="btn grow" onClick={() => setSheet({ restrict: i })}>Restriction</button>
+              <button className="btn grow nowrap" onClick={() => setSheet({ restrict: i })}>Restriction</button>
               <button className="btn icon-btn" onClick={() => setSheet({ edit: i })} aria-label="Edit injury"><Icon name="gear" size={18} /></button>
             </div>
           </section>
@@ -127,7 +127,7 @@ export default function Body() {
       </div>
       <p className="tiny muted" style={{ margin: "0 4px" }}>Sick and travel days are left out of your baselines so they don't skew "normal".</p>
       <div className="list">
-        {!events?.filter((e) => e.type_code !== "supplement").length && <div className="list-row small muted">Nothing in the last three weeks.</div>}
+        {events && !events.filter((e) => e.type_code !== "supplement").length && <div className="list-row small muted">Nothing in the last three weeks.</div>}
         {events?.filter((e) => e.type_code !== "supplement").slice(0, 8).map((e) => (
           <div key={e.id} className="list-row small">
             <span className={`icon-circle ${EVENT_HUE[e.type_code] ?? ""}`} style={{ width: 34, height: 34 }}><Icon name={EVENT_ICON[e.type_code] ?? "calendar"} size={16} /></span>
@@ -145,7 +145,7 @@ export default function Body() {
 
       <h3 className="section-title">Journal</h3>
       <div className="list">
-        {!journal?.length && <div className="list-row small muted">No entries yet.</div>}
+        {journal && !journal.length && <div className="list-row small muted">No entries yet.</div>}
         {journal?.slice(0, 14).map((j) => (
           <div key={j.date} className="list-row small num" style={{ minHeight: 48 }}>
             <span style={{ width: 104 }}>{dayLabel(j.date)}</span>
