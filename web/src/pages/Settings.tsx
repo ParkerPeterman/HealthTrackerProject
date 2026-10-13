@@ -119,7 +119,7 @@ function Targets() {
         {active.map((t) => (
           <div key={t.id} className="list-row small">
             <span className="grow">{LABELS[t.nutrient] ?? t.nutrient}<div className="tiny muted">{t.evaluation === "weekly_avg" ? "weekly average" : "daily"}{t.source_ref ? ` · ${t.source_ref}` : ""}</div></span>
-            <span className="num">{t.min_value ?? "–"}{t.max_value != null ? `–${t.max_value}` : "+"}</span>
+            <span className="num">{t.min_value != null && t.max_value != null ? `${t.min_value}–${t.max_value}` : t.min_value != null ? `${t.min_value}+` : `≤ ${t.max_value}`}</span>
             <button className="btn ghost small danger" aria-label={`Remove ${t.nutrient}`} onClick={() => run(async () => { await api.del(`/targets/${t.id}`); refresh(); })}>
               <Icon name="x" size={16} />
             </button>

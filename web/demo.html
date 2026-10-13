@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>Design Preview</title>
+    <!-- Dev-only preview page (npm run demo → /demo.html). Not part of the production build. -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08080a;
+        --panel: #111114;
+        --line: rgba(255, 255, 255, 0.08);
+        --ink: #f4f4f5;
+        --muted: #7a7a84;
+        font-family: "Geist Variable", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+      body { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
+      header {
+        display: flex; align-items: center; justify-content: space-between; gap: 16px;
+        padding: 14px 22px; border-bottom: 1px solid var(--line); flex: none;
+      }
+      .brand { display: flex; flex-direction: column; }
+      .brand b { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+      .brand span { font-size: 12px; color: var(--muted); }
+      .controls { display: flex; gap: 10px; align-items: center; }
+      .seg { display: flex; padding: 4px; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+      .seg button {
+        border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; font-weight: 500;
+        padding: 7px 14px; border-radius: 999px; cursor: pointer;
+      }
+      .seg button.on { background: #fff; color: #08080a; }
+      .actions { display: flex; gap: 8px; }
+      .actions a, .actions button {
+        font: inherit; font-size: 13px; color: var(--ink); text-decoration: none; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer;
+      }
+      .actions a:hover, .actions button:hover, .screens button:hover { border-color: rgba(255, 255, 255, 0.2); }
+
+      main { flex: 1; min-height: 0; display: flex; }
+      .screens { width: 200px; flex: none; padding: 22px 16px; display: flex; flex-direction: column; gap: 6px; border-right: 1px solid var(--line); }
+      .screens .label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 0 6px 6px; }
+      .screens button {
+        text-align: left; font: inherit; font-size: 14px; color: var(--ink); background: none; border: 1px solid transparent;
+        border-radius: 12px; padding: 9px 12px; cursor: pointer;
+      }
+      .screens button.on { background: var(--panel); border-color: var(--line); }
+      .screens .note { margin-top: auto; font-size: 12px; line-height: 1.5; color: var(--muted); padding: 0 6px; }
+
+      .stage { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 24px; }
+      .stage.all { justify-content: flex-start; align-items: flex-start; }
+      .row { display: flex; gap: 28px; margin: auto; }
+      .slot { display: flex; flex-direction: column; align-items: center; gap: 10px; flex: none; }
+      .slot .cap { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+      .fit { flex: none; }
+
+      /* 390 × 844 screen inside a 12px bezel */
+      .phone {
+        width: 414px; height: 868px; padding: 12px; border-radius: 60px; transform-origin: top left;
+        background: linear-gradient(150deg, #2c2c31, #121215 45%, #1d1d21);
+        box-shadow: inset 0 0 0 1.5px #3b3b42, 0 0 0 1px #000, 0 50px 90px -20px rgba(0, 0, 0, 0.8);
+      }
+      .screen { width: 390px; height: 844px; border-radius: 48px; overflow: hidden; background: #050506; display: flex; flex-direction: column; position: relative; }
+      .status { height: 50px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 6px 30px 0 34px; font-size: 15px; font-weight: 600; }
+      .status .island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 120px; height: 34px; border-radius: 20px; background: #000; }
+      .status svg { display: block; }
+      .screen iframe { flex: 1; width: 100%; border: 0; display: block; background: #050506; }
+      .home { height: 30px; flex: none; display: flex; align-items: center; justify-content: center; }
+      .home i { width: 134px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.85); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand"><b>Training Log · design preview</b><span>Demo data · live-reloads as the design changes</span></div>
+      <div class="controls">
+        <div class="seg" id="layout" role="tablist" aria-label="Layout">
+          <button data-mode="phone">Phone</button>
+          <button data-mode="all">All screens</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="reload" title="Reset demo data">Reset data</button>
+        <a id="open" href="/" target="_blank" rel="noreferrer">Open app ↗</a>
+      </div>
+    </header>
+    <main>
+      <nav class="screens" id="screens" aria-label="Screens">
+        <div class="label">Screens</div>
+      </nav>
+      <section class="stage" id="stage"></section>
+    </main>
+
+    <script type="module">
+      import "@fontsource-variable/geist";
+
+      const SCREENS = [
+        ["Today", "/"], ["Food", "/food"], ["Train", "/train"], ["Body", "/body"],
+        ["Goals", "/more/goals"], ["More", "/more"], ["Coach", "/more/coach"], ["Settings", "/more/settings"],
+      ];
+      const ALL = ["/", "/food", "/train", "/body", "/more/goals"];
+      const store = {
+        get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+        set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } },
+      };
+      let mode = store.get("preview.mode", "phone");
+      if (!["phone", "all"].includes(mode)) mode = "phone";
+      let current = store.get("preview.screen", "/");
+
+      const stage = document.getElementById("stage");
+      const nav = document.getElementById("screens");
+
+      const statusBar = () => {
+        const t = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M/i, "");
+        return `<div class="status"><span>${t}</span><div class="island"></div>
+          <svg width="74" height="13" viewBox="0 0 74 13" fill="#fff" aria-hidden="true">
+            <rect x="0" y="8" width="3" height="5" rx="1"/><rect x="5" y="6" width="3" height="7" rx="1"/>
+            <rect x="10" y="3" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="13" rx="1"/>
+            <path d="M30 4.5a9 9 0 0 1 12 0l-1.4 1.5a7 7 0 0 0-9.2 0zM32.8 7.5a5 5 0 0 1 6.4 0L36 11z"/>
+            <rect x="49.5" y="0.5" width="21" height="12" rx="3.5" fill="none" stroke="#fff" stroke-opacity=".45"/>
+            <rect x="51.5" y="2.5" width="15" height="8" rx="2"/><rect x="71.5" y="4" width="2" height="5" rx="1" fill-opacity=".45"/>
+          </svg></div>`;
+      };
+      const phone = (src) => `<div class="phone"><div class="screen">${statusBar()}
+        <iframe src="${src}" title="App preview: ${src}"></iframe><div class="home"><i></i></div></div></div>`;
+
+      // Fit the phones to the stage height, and in "all" mode to its width too
+      // (down to a readable floor; past that the row scrolls sideways).
+      function scaleFor(count) {
+        const h = (stage.clientHeight - 48 - (count > 1 ? 26 : 0)) / 868;
+        const w = (stage.clientWidth - 48 - (count - 1) * 28) / (count * 414);
+        return Math.min(1, h, count > 1 ? Math.max(0.55, w) : 1);
+      }
+
+      function render() {
+        document.querySelectorAll("#layout button").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+        nav.style.display = mode === "phone" ? "" : "none";
+        stage.classList.toggle("all", mode === "all");
+        // [path, caption] for each phone on the stage
+        const slots = mode === "phone" ? [[current, ""]]
+          : ALL.map((src) => [src, SCREENS.find(([, p]) => p === src)?.[0] ?? src]);
+        stage.innerHTML = `<div class="row">${slots.map(([src, cap]) =>
+          `<div class="slot">${cap ? `<div class="cap">${cap}</div>` : ""}<div class="fit">${phone(src)}</div></div>`).join("")}</div>`;
+        fit();
+      }
+
+      function fit() {
+        const s = scaleFor(stage.querySelectorAll(".fit").length);
+        stage.querySelectorAll(".fit").forEach((el) => {
+          el.style.width = `${414 * s}px`;
+          el.style.height = `${868 * s}px`;
+          el.firstElementChild.style.transform = `scale(${s})`;
+        });
+      }
+
+      for (const [name, path] of SCREENS) {
+        const b = document.createElement("button");
+        b.textContent = name;
+        b.dataset.path = path;
+        b.onclick = () => {
+          current = path;
+          store.set("preview.screen", path);
+          nav.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+          render();
+        };
+        if (path === current) b.classList.add("on");
+        nav.insertBefore(b, null);
+      }
+      const note = document.createElement("p");
+      note.className = "note";
+      note.textContent = "Tap through the app inside the phone; it's fully interactive. Mock data resets on reload.";
+      nav.appendChild(note);
+
+      document.querySelectorAll("#layout button").forEach((b) => (b.onclick = () => {
+        mode = b.dataset.mode;
+        store.set("preview.mode", mode);
+        render();
+      }));
+      document.getElementById("reload").onclick = () => stage.querySelectorAll("iframe").forEach((f) => f.contentWindow.location.reload());
+      addEventListener("resize", fit);
+      render();
+    </script>
+  </body>
+</html>

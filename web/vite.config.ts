@@ -14,8 +14,8 @@ export default defineConfig({
         name: "Training Log",
         short_name: "Log",
         description: "Personal health & training tracker",
-        theme_color: "#1f3a2e",
-        background_color: "#f6f3ec",
+        theme_color: "#050506",
+        background_color: "#050506",
         display: "standalone",
         start_url: "/",
         icons: [

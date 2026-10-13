@@ -8,6 +8,7 @@ import Today from "./pages/Today";
 import Train from "./pages/Train";
 import WorkoutDetail from "./pages/WorkoutDetail";
 import Coach from "./pages/Coach";
+import Goals from "./pages/Goals";
 
 const TABS = [
   { to: "/", label: "Today", icon: "today" },
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="/body" element={<Body />} />
           <Route path="/more" element={<More />} />
           <Route path="/more/coach" element={<Coach />} />
+          <Route path="/more/goals" element={<Goals />} />
           <Route path="/more/settings" element={<Settings />} />
           <Route path="*" element={<Today />} />
         </Routes>

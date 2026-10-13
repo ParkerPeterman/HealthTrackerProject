@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { api, type Food as FoodItem, type FoodDay, type FoodEntry, type Meal, type SavedMeal } from "../api";
 import { Scanner } from "../components/Scanner";
-import { Bar, Chips, Empty, Icon, Sheet, Stepper, useRun } from "../components/ui";
+import { Bar, Chips, Empty, Icon, Ring, Sheet, Stepper, useRun } from "../components/ui";
 import { addDays, dayLabel, isoDate, mealForNow, onDateNow, timeLabel, toLocalInput } from "../dates";
 import { round } from "../units";
 
@@ -34,33 +34,39 @@ export default function Food() {
   const target = (n: string) => data?.targets.find((t) => t.nutrient === n && t.evaluation === "daily");
   const t = data?.totals ?? {};
 
+  const kcalT = target("kcal");
+  const kcal = t.kcal ?? 0;
+
   return (
     <div className="stack">
       <header className="topbar">
-        <button className="btn ghost icon-btn" aria-label="Previous day" onClick={() => setDate(addDays(date, -1))}><Icon name="back" /></button>
+        <button className="btn icon-btn" aria-label="Previous day" onClick={() => setDate(addDays(date, -1))}><Icon name="back" size={20} /></button>
         <div style={{ textAlign: "center" }}>
-          <h1>{dayLabel(date)}</h1>
-          <div className="sub">{data?.complete ? "Marked complete" : "Food log"}</div>
+          <div className="eyebrow">{data?.complete ? "Marked complete" : "Food log"}</div>
+          <h1 className="compact">{dayLabel(date)}</h1>
         </div>
-        <button className="btn ghost icon-btn" aria-label="Next day" disabled={date >= isoDate()}
-                onClick={() => setDate(addDays(date, 1))}><Icon name="chevron" /></button>
+        <button className="btn icon-btn" aria-label="Next day" disabled={date >= isoDate()}
+                onClick={() => setDate(addDays(date, 1))}><Icon name="chevron" size={20} /></button>
       </header>
 
-      <section className="card stack" aria-label="Totals">
-        <Macro label="Calories" value={t.kcal} unit="kcal" target={target("kcal")} />
-        <Macro label="Protein" value={t.protein_g} unit="g" target={target("protein_g")} />
-        <div className="grid3 small">
-          <div><div className="muted tiny">Carbs</div><b className="num">{round(t.carbs_g)} g</b></div>
-          <div><div className="muted tiny">Fat</div><b className="num">{round(t.fat_g)} g</b></div>
-          <div><div className="muted tiny">Fiber</div><b className="num">{round(t.fiber_g)} g</b></div>
-        </div>
-        {(t.caffeine_mg > 0 || t.alcohol_g > 0) && (
-          <div className="tiny muted">
-            {t.caffeine_mg > 0 && `Caffeine ${round(t.caffeine_mg)} mg`}
-            {t.caffeine_mg > 0 && t.alcohol_g > 0 && " · "}
-            {t.alcohol_g > 0 && `Alcohol ${(t.alcohol_g / 14).toFixed(1)} drinks`}
+      <section className="card stack" aria-label="Totals" style={{ gap: 18 }}>
+        <div className="row" style={{ gap: 20 }}>
+          <Ring value={kcal} max={kcalT?.min ?? kcalT?.max ?? 2500} size={136} stroke={11} hue="food"
+                label={`${round(kcal)} kcal${kcalT ? ` of a ${targetText(kcalT)} kcal goal` : ""}`}>
+            <div><span className="v xl">{Math.round(kcal).toLocaleString()}</span><span className="u">kcal</span></div>
+          </Ring>
+          <div className="grow">
+            <CalorieStatus kcal={kcal} target={kcalT} />
           </div>
-        )}
+        </div>
+        <Macro label="Protein" hue="protein" value={t.protein_g} unit="g" target={target("protein_g")} />
+        <Macro label="Fiber" hue="hrv" value={t.fiber_g} unit="g" target={target("fiber_g")} />
+        <div className="grid3">
+          <Stat label="Carbs" value={`${round(t.carbs_g)} g`} />
+          <Stat label="Fat" value={`${round(t.fat_g)} g`} />
+          <Stat label={t.alcohol_g > 0 ? "Drinks" : "Caffeine"}
+                value={t.alcohol_g > 0 ? (t.alcohol_g / 14).toFixed(1) : `${round(t.caffeine_mg)} mg`} />
+        </div>
       </section>
 
       <button className="btn primary block" onClick={() => setAdding(true)}><Icon name="plus" size={18} /> Add food</button>
@@ -79,7 +85,7 @@ export default function Food() {
                 <div className="meta">{e.servings !== 1 ? `${e.servings} × ` : ""}{e.serving_desc ?? "serving"} · {timeLabel(e.logged_ts)}</div>
               </div>
               <div className="num small" style={{ textAlign: "right" }}>
-                {round(e.kcal)} kcal<div className="tiny muted">{round(e.protein_g)} g P</div>
+                {round(e.kcal)} kcal<div className="tiny muted">{round(e.protein_g)} g protein</div>
               </div>
             </button>
           ))}
@@ -88,15 +94,15 @@ export default function Food() {
       ))}
 
       <label className="card row" style={{ cursor: "pointer" }}>
-        <input type="checkbox" checked={data?.complete ?? false}
+        <span className="grow">
+          <span style={{ fontWeight: 550 }}>This day's log is complete</span>
+          <span className="tiny muted" style={{ display: "block", marginTop: 2 }}>Only complete days count in nutrition stats, so a missed meal never reads as zero.</span>
+        </span>
+        <input type="checkbox" className="switch" checked={data?.complete ?? false}
                onChange={(e) => run(async () => {
                  await api.put(`/food-day/${date}/complete`, { complete: e.target.checked });
                  refresh();
                })} />
-        <span className="grow">
-          <b>This day's log is complete</b>
-          <div className="tiny muted">Only complete days count in nutrition stats, so a missed meal never reads as zero.</div>
-        </span>
       </label>
 
       {adding && <AddFoodSheet date={date} onClose={() => setAdding(false)} onAdded={refresh} />}
@@ -105,23 +111,54 @@ export default function Food() {
   );
 }
 
-function Macro({ label, value, unit, target }: {
-  label: string; value: number | undefined; unit: string;
-  target?: { min: number | null; max: number | null };
+type Range = { min: number | null; max: number | null };
+const targetText = (t: Range) => (t.min != null && t.max != null ? `${t.min.toLocaleString()}–${t.max.toLocaleString()}` : t.min != null ? `${t.min.toLocaleString()}+` : `≤ ${t.max?.toLocaleString()}`);
+
+function CalorieStatus({ kcal, target }: { kcal: number; target?: Range }) {
+  if (!target) return <><div className="eyebrow">Calories</div><div className="tiny muted" style={{ marginTop: 6 }}>No calorie goal set. Add one in Settings.</div></>;
+  const { min, max } = target;
+  let head = "In range";
+  let value: number | null = null;
+  if (min != null && kcal < min) { head = "To go"; value = min - kcal; }
+  else if (max != null && kcal > max) { head = "Over"; value = kcal - max; }
+  return (
+    <>
+      <div className="eyebrow">{head}</div>
+      <div className="big-num md" style={{ marginTop: 6 }}>
+        {value != null ? Math.round(value).toLocaleString() : <span className="good">✓</span>}
+        {value != null && <small>kcal</small>}
+      </div>
+      <div className="tiny muted" style={{ marginTop: 6 }}>Goal {targetText(target)} kcal</div>
+    </>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="tile" style={{ padding: "10px 12px" }}>
+      <div className="label">{label}</div>
+      <div className="display-num" style={{ marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
+function Macro({ label, value, unit, target, hue }: {
+  label: string; value: number | undefined; unit: string; hue: string;
+  target?: Range;
 }) {
   const v = value ?? 0;
   const lo = target?.min ?? null;
   const hi = target?.max ?? null;
   return (
     <div>
-      <div className="spread small">
-        <b>{label}</b>
+      <div className="spread small" style={{ marginBottom: 8 }}>
+        <span className="row" style={{ gap: 8 }}><span className={`dot hue-${hue}`} />{label}</span>
         <span className="num">
-          {round(v)} {unit}
-          {target && <span className="muted"> / {lo != null && hi != null ? `${lo}–${hi}` : lo ?? `≤ ${hi}`}</span>}
+          <b style={{ fontWeight: 600 }}>{round(v)}</b> {unit}
+          {target && <span className="muted"> / {targetText(target)}</span>}
         </span>
       </div>
-      {target && <Bar value={v} target={lo} max={hi} />}
+      {target && <Bar value={v} target={lo} max={hi} hue={hue} />}
     </div>
   );
 }
@@ -130,7 +167,7 @@ function SaveMealButton({ date, meal }: { date: string; meal: Meal }) {
   const run = useRun();
   const qc = useQueryClient();
   return (
-    <button className="list-row button tiny muted" style={{ minHeight: 40 }}
+    <button className="list-row button tiny muted" style={{ minHeight: 44 }}
             onClick={() => {
               const name = window.prompt("Save this meal as…", `${MEAL_LABELS[meal] ?? meal} usual`);
               if (name) run(async () => {
@@ -197,7 +234,7 @@ function RecentFoods({ onQuickAdd, onPick }: { onQuickAdd: (f: FoodItem) => void
             <div className="title">{f.name}</div>
             <div className="meta">{f.last_servings ?? 1} × {f.serving_desc ?? "serving"} · {round((f.kcal ?? 0) * (f.last_servings ?? 1))} kcal</div>
           </button>
-          <button className="btn small accent" onClick={() => onQuickAdd(f)} aria-label={`Add ${f.name}`}>
+          <button className="btn primary icon-btn" onClick={() => onQuickAdd(f)} aria-label={`Add ${f.name}`}>
             <Icon name="plus" size={16} />
           </button>
         </div>
@@ -249,7 +286,7 @@ function SavedMeals({ date, meal, onLogged }: { date: string; meal: Meal; onLogg
                     await api.del(`/saved-meals/${m.id}`);
                     qc.invalidateQueries({ queryKey: ["saved-meals"] });
                   })}><Icon name="trash" size={16} /></button>
-          <button className="btn small accent" onClick={() => run(async () => {
+          <button className="btn small primary" onClick={() => run(async () => {
             await api.post(`/saved-meals/${m.id}/log`, {
               meal, date, logged_ts: (date === isoDate() ? new Date() : onDateNow(date)).toISOString(),
             });

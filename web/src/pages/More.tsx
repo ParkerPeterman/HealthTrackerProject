@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Proposals } from "../api";
+import { api, type Goal, type Proposals } from "../api";
 import { Icon } from "../components/ui";
 
 export function dashboardUrl(): string {
@@ -16,12 +16,22 @@ export function dashboardUrl(): string {
 
 export default function More() {
   const { data } = useQuery({ queryKey: ["proposals"], queryFn: () => api.get<Proposals>("/proposals") });
-  const pending = (data?.parameters.length ?? 0) + (data?.statuses.length ?? 0);
+  const { data: goals } = useQuery({ queryKey: ["goals"], queryFn: () => api.get<Goal[]>("/goals") });
+  const activeGoals = goals?.filter((g) => g.active && !g.achieved_date).length ?? 0;
+  const pending = (data?.parameters.length ?? 0) + (data?.statuses.length ?? 0) + (data?.targets?.length ?? 0);
   const [dash] = useState(dashboardUrl);
   return (
     <div className="stack">
       <header className="topbar"><h1>More</h1></header>
       <div className="list">
+        <Link to="/more/goals" className="list-row button" style={{ textDecoration: "none", color: "inherit" }}>
+          <div className="grow">
+            <div className="title">Goals</div>
+            <div className="meta">Weight goals that set your calories, plus performance, health, and habit goals</div>
+          </div>
+          {activeGoals > 0 && <span className="badge tint hue-signal">{activeGoals}</span>}
+          <Icon name="chevron" size={18} />
+        </Link>
         <Link to="/more/coach" className="list-row button" style={{ textDecoration: "none", color: "inherit" }}>
           <div className="grow">
             <div className="title">Coach</div>

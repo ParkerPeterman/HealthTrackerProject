@@ -6,7 +6,12 @@ export class ApiError extends Error {
   }
 }
 
+// `npm run demo` (vite --mode demo) answers from an in-memory synthetic athlete
+// instead of the API. Production builds drop this branch.
+const DEMO = import.meta.env.MODE === "demo";
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (DEMO) return (await import("./demo/mock")).mockRequest<T>(method, path, body);
   const res = await fetch(`/api${path}`, {
     method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -253,6 +258,7 @@ export interface Today {
   planned: Planned[];
   injuries: { id: number; body_part: string; side: string | null; status: string; checked_in: boolean }[];
   pending_proposals: number;
+  goals?: GoalSummary[];
   last_run: { job: string; started_at: string; ok: boolean; failed_steps: string | null } | null;
 }
 
@@ -291,7 +297,22 @@ export interface Rule {
   parameters: { name: string; value: number; default_value: number; min_allowed: number | null; max_allowed: number | null }[];
 }
 
+export interface TargetProposal {
+  id: number;
+  goal_id: number | null;
+  goal_description: string | null;
+  nutrient: "kcal" | "protein_g";
+  basis: "per_day" | "per_kg_bodyweight";
+  old_min: number | null;
+  old_max: number | null;
+  new_min: number | null;
+  new_max: number | null;
+  reason: string;
+  changed_at: string;
+}
+
 export interface Proposals {
+  targets?: TargetProposal[];
   parameters: { id: number; rule_id: string; name: string; old_value: number; new_value: number; reason: string; description: string; changed_at: string }[];
   statuses: { id: number; rule_id: string; old_status: string; new_status: string; reason: string; description: string; changed_at: string }[];
   history: { kind: string; rule_id: string; name: string | null; old: string; new: string; approved: boolean; proposed_by: string; reason: string; changed_at: string }[];
@@ -322,4 +343,68 @@ export interface Experiment {
   assignment: Record<string, "treatment" | "control">;
   protocol: { action_text: string } | null;
   result_summary: string | null;
+}
+
+// ------------------------------------------------------------------ goals
+export type GoalType = "body_weight" | "performance" | "health" | "habit";
+export type GoalStatus = "achieved" | "ahead" | "on_track" | "behind" | "in_progress" | "no_data" | "not_tracked";
+
+export interface GoalProgress {
+  status: GoalStatus;
+  metric?: string;
+  current: number | null;
+  start?: number | null;
+  target?: number | null;
+  pct: number | null;
+  expected?: number | null;
+  rate_per_week?: number | null;      // weight: actual trend, kg/week
+  projected_date?: string | null;
+  days?: { date: string; value: number | null; hit: boolean | null }[];
+  hits?: number;
+  needed?: number;
+}
+
+export interface Goal {
+  id: number;
+  goal_type: GoalType;
+  description: string;
+  metric: string | null;
+  direction: "decrease" | "increase" | "maintain" | null;
+  target_value: number | null;
+  unit: string | null;
+  target_date: string | null;
+  rate_per_week: number | null;       // kg/week, negative = losing
+  days_per_week: number | null;
+  exercise_id: number | null;
+  start_value: number | null;
+  start_date: string;
+  achieved_date: string | null;
+  active: boolean;
+  progress: GoalProgress;
+}
+
+export interface GoalSummary {
+  id: number;
+  goal_type: GoalType;
+  description: string;
+  metric: string | null;
+  status: GoalStatus;
+  pct: number | null;
+}
+
+export interface GoalMetrics {
+  metrics: { key: string; label: string; unit: string; better: "higher" | "lower"; kind: "level" | "daily";
+    goal_types: GoalType[]; current: number | null }[];
+  lifts: { id: number; name: string; best_e1rm_kg: number | null }[];
+}
+
+export interface GoalPlan {
+  current_weight_kg: number | null;
+  expenditure: { kcal: number; source: "data" | "formula"; intake_kcal: number | null; trend_kg_per_week: number | null;
+    logged_days: number; weight_days: number; window_days: number; activity_factor: number | null } | null;
+  plan: { kcal_min: number; kcal_max: number; kcal_mid: number; requested_rate: number; rate_kg_per_week: number;
+    expected_rate: number; capped: boolean; floor_applied: boolean; protein_g_per_kg: number;
+    max_loss_kg_per_week: number; max_gain_kg_per_week: number } | null;
+  projected_date: string | null;
+  missing?: string;
 }

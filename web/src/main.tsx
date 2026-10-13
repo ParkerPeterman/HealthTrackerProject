@@ -5,6 +5,9 @@ import { BrowserRouter } from "react-router-dom";
 import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { ToastProvider } from "./components/ui";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/domine";
+import "@fontsource-variable/geist-mono";
 import "./styles.css";
 
 registerSW({ immediate: true });

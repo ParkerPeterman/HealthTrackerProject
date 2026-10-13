@@ -30,14 +30,20 @@ function Approvals() {
   const run = useRun();
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["proposals"], queryFn: () => api.get<Proposals>("/proposals") });
-  const decide = (kind: "parameter" | "status", id: number, approve: boolean) => run(async () => {
+  const decide = (kind: "parameter" | "status" | "target", id: number, approve: boolean) => run(async () => {
     await api.post(`/proposals/${kind}/${id}`, { approve });
     qc.invalidateQueries({ queryKey: ["proposals"] });
     qc.invalidateQueries({ queryKey: ["rules"] });
     qc.invalidateQueries({ queryKey: ["today"] });
+    qc.invalidateQueries({ queryKey: ["targets"] });
+    qc.invalidateQueries({ queryKey: ["food-day"] });
   }, approve ? "Approved" : "Rejected");
   if (!data) return <Empty>Loading…</Empty>;
-  const none = !data.parameters.length && !data.statuses.length;
+  const targets = data.targets ?? [];
+  const none = !data.parameters.length && !data.statuses.length && !targets.length;
+  const range = (lo: number | null, hi: number | null, nutrient: string) => nutrient === "kcal"
+    ? lo == null && hi == null ? "none" : `${lo?.toLocaleString() ?? "–"}–${hi?.toLocaleString() ?? "–"}`
+    : lo == null ? "none" : `${lo}`;
   return (
     <div className="stack">
       <p className="small muted" style={{ margin: 0 }}>
@@ -45,6 +51,22 @@ function Approvals() {
         promoting a hidden rule that has earned it. Nothing changes until you approve.
       </p>
       {none && <Empty>Nothing waiting for approval.</Empty>}
+      {targets.map((t) => (
+        <div key={t.id} className="card stack">
+          <div>
+            <div className="tiny muted">{t.goal_description ?? "Weight goal"} · weekly check</div>
+            <h3>
+              {t.nutrient === "kcal" ? "Calories" : "Protein"}: {range(t.old_min, t.old_max, t.nutrient)} →{" "}
+              <span className="good">{range(t.new_min, t.new_max, t.nutrient)}</span> {t.nutrient === "kcal" ? "kcal" : "g/kg"}
+            </h3>
+          </div>
+          <p className="small" style={{ margin: 0 }}>{t.reason}</p>
+          <div className="row">
+            <button className="btn grow" onClick={() => decide("target", t.id, false)}>Keep current</button>
+            <button className="btn primary grow" onClick={() => decide("target", t.id, true)}>Approve</button>
+          </div>
+        </div>
+      ))}
       {data.parameters.map((p) => (
         <div key={p.id} className="card stack">
           <div>

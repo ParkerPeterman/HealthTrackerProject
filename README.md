@@ -50,11 +50,12 @@ flowchart TD
 | `llm` | Ollama client, two small calls (training, nutrition), output guard, template fallback |
 | `stats` | Weekly hypothesis tests (OLS + HAC errors, block bootstrap, BH correction, replication), tuning, rule promotion, self-experiments |
 | `planning` | Next week's plan around fixed games, recovery state, and injury restrictions |
+| `goals` | Weight goals that set calorie/protein targets from my own energy balance; performance, health, and habit goals tracked from `daily_features` |
 | `api` + `web/` | FastAPI + React installable phone app (barcode scanning via Open Food Facts) |
 | `dashboard` | Streamlit + Plotly, read-only |
 
 The schema is `db/migrations/001_schema_v3.sql` (raw / core / analytics / knowledge layers) plus
-`002_app_support.sql`. Design decisions are in [docs/design-notes.md](docs/design-notes.md).
+`002_app_support.sql` and the later numbered migrations (`005_goals.sql` adds goals). Design decisions are in [docs/design-notes.md](docs/design-notes.md).
 
 ## Quick start
 
@@ -104,8 +105,16 @@ sudo tailscale serve --bg --https=443  http://127.0.0.1:8000    # tracker app
 sudo tailscale serve --bg --https=8443 http://127.0.0.1:8501    # dashboard
 ```
 
-Open `https://<machine>.<tailnet>.ts.net` on the phone and choose **Add to Home Screen**. In the
-app, set *Settings → Dashboard address* to `https://<machine>.<tailnet>.ts.net:8443`.
+On the phone, install the Tailscale app and sign in with the same account, then open
+`https://<machine>.<tailnet>.ts.net`:
+
+- **Android (Chrome):** menu ⋮ → **Install app** (or **Add to Home screen** → Install). It opens
+  full screen from its own icon and shows up in the app drawer.
+- **iPhone (Safari):** Share → **Add to Home Screen**.
+
+In the app, set *Settings → Dashboard address* to `https://<machine>.<tailnet>.ts.net:8443`.
+Logging needs the computer running (your data stays on it); with it off, the app still shows what
+it last loaded.
 
 ## Daily routine (under two minutes)
 
@@ -115,6 +124,11 @@ app, set *Settings → Dashboard address* to `https://<machine>.<tailnet>.ts.net
 - **Games (Train tab):** minutes played and effort, since the watch is off during games.
 - **Lifts (Train → Lift):** sets, reps, weight, and reps in reserve. "Last time" is prefilled.
 - **Injuries (Body tab):** a daily pain check-in while an injury is active.
+- **Goals (More → Goals):** set once. A weight goal (lose, gain, or maintain, at a chosen pace)
+  sets your calorie and protein targets; the weekly job re-estimates what you burn from your own
+  logs and proposes target changes for you to approve. Performance (5K, lift 1RM, pace at
+  reference HR, VO2 max), health (resting HR, HRV), and habit goals (sleep, protein, complete food
+  log, training days, alcohol) track themselves.
 
 ## Roadmap status
 
@@ -152,6 +166,7 @@ docker compose up -d db
 .venv/bin/pytest                                  # DB tests use TEST_DATABASE_URL
 .venv/bin/uvicorn healthtracker.api.main:app --reload
 cd web && npm install && npm run dev               # :5173, proxies /api to :8000
+cd web && npm run demo                             # no backend: mock data; phone preview at :5173/demo.html
 .venv/bin/streamlit run src/healthtracker/dashboard/Today.py
 ```
 

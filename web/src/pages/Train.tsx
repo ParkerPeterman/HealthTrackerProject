@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type Planned, type Workout } from "../api";
-import { Chips, Empty, Icon, Scale, Sheet, Stepper, useRun, useUnits } from "../components/ui";
+import { cap, Chips, Empty, Icon, Scale, sessionLook, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { addDays, dayLabel, isoDate, toLocalInput } from "../dates";
 import { fmtDuration, showDistance, showPace, distUnit } from "../units";
 
@@ -31,42 +31,68 @@ export default function Train() {
 
   const byDay = new Map<string, Planned[]>();
   for (const p of planned ?? []) byDay.set(p.date, [...(byDay.get(p.date) ?? []), p]);
+  const week = (workouts ?? []).filter((w) => (w.date ?? w.start_ts.slice(0, 10)) > addDays(today, -7));
+  const weekMin = week.reduce((s, w) => s + w.duration_s, 0) / 60;
+  const weekLoad = week.reduce((s, w) => s + (w.session_load ?? 0), 0);
 
   return (
     <div className="stack">
-      <header className="topbar"><h1>Training</h1></header>
-      <div className="grid3">
-        <button className="btn accent" onClick={() => setSheet("game")}><Icon name="disc" size={18} /> Game</button>
-        <button className="btn primary" onClick={startStrength}><Icon name="train" size={18} /> Lift</button>
-        <button className="btn" onClick={() => setSheet("workout")}><Icon name="plus" size={18} /> Other</button>
+      <header className="topbar">
+        <div><div className="eyebrow">Last 7 days · next 14</div><h1>Training</h1></div>
+      </header>
+
+      <section className="card" aria-label="Last 7 days">
+        <div className="grid3">
+          <WeekStat label="Sessions" value={String(week.length)} />
+          <WeekStat label="Time" value={weekMin >= 60 ? `${Math.floor(weekMin / 60)}h ${String(Math.round(weekMin % 60)).padStart(2, "0")}` : `${Math.round(weekMin)}m`} />
+          <WeekStat label="Load" value={Math.round(weekLoad).toLocaleString()} />
+        </div>
+      </section>
+
+      <div className="action-grid">
+        <button className="action-tile" onClick={() => setSheet("game")}>
+          <span className="icon-circle t-game"><Icon name="disc" size={20} /></span>
+          <span>Game<span className="sub">watch off</span></span>
+        </button>
+        <button className="action-tile" onClick={startStrength}>
+          <span className="icon-circle t-strength"><Icon name="kettlebell" size={20} /></span>
+          <span>Lift<span className="sub">sets and reps</span></span>
+        </button>
+        <button className="action-tile" onClick={() => setSheet("workout")}>
+          <span className="icon-circle"><Icon name="plus" size={20} /></span>
+          <span>Other<span className="sub">any session</span></span>
+        </button>
       </div>
-      <p className="tiny muted" style={{ margin: 0 }}>
+      <p className="tiny muted" style={{ margin: "0 4px" }}>
         Runs and anything recorded on the watch arrive from Garmin automatically. Log games (watch off) and lifts here.
       </p>
 
       <div className="spread">
         <h3 className="section-title">Next two weeks</h3>
-        <button className="btn small" onClick={() => setSheet("plan")}><Icon name="plus" size={16} /> Plan</button>
+        <button className="btn small" onClick={() => setSheet("plan")} style={{ marginTop: 16 }}><Icon name="plus" size={16} /> Plan</button>
       </div>
       <div className="list">
         {byDay.size === 0 && <div className="list-row muted small">Nothing planned. Add your games; the weekly job plans around them.</div>}
         {[...byDay.entries()].map(([d, items]) => (
           <div key={d}>
             <div className="list-head"><span>{dayLabel(d, today)}</span></div>
-            {items.map((p) => (
-              <button key={p.id} className="list-row button" onClick={() => setEditPlan(p)}>
-                {p.session_type === "game" ? <span className="badge game">game</span> : <span className="badge">{p.session_type}</span>}
-                <div className="grow">
-                  <div className="title">{p.notes || p.sport}</div>
-                  <div className="meta">
-                    {[p.planned_duration_min && `${p.planned_duration_min} min`, p.planned_rpe && `RPE ${p.planned_rpe}`,
-                      p.origin === "generated" ? "auto-planned" : null, p.status !== "planned" ? p.status : null]
-                      .filter(Boolean).join(" · ")}
+            {items.map((p) => {
+              const look = sessionLook(p.session_type, p.sport);
+              return (
+                <button key={p.id} className="list-row button" onClick={() => setEditPlan(p)}>
+                  <span className={`icon-circle ${look.hue}`} style={{ width: 36, height: 36 }}><Icon name={look.icon} size={17} /></span>
+                  <div className="grow">
+                    <div className="title">{cap(p.notes || p.sport)}</div>
+                    <div className="meta">
+                      {[p.session_type, p.planned_duration_min && `${p.planned_duration_min} min`, p.planned_rpe && `RPE ${p.planned_rpe}`,
+                        p.origin === "generated" ? "auto-planned" : null, p.status !== "planned" ? p.status : null]
+                        .filter(Boolean).join(" · ")}
+                    </div>
                   </div>
-                </div>
-                <Icon name="chevron" size={18} />
-              </button>
-            ))}
+                  <Icon name="chevron" size={18} />
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -74,26 +100,30 @@ export default function Train() {
       <h3 className="section-title">Recent workouts</h3>
       <div className="list">
         {!workouts?.length && <Empty>No workouts in the last three weeks.</Empty>}
-        {workouts?.map((w) => (
-          <Link key={w.id} to={`/train/${w.id}`} className="list-row button" style={{ textDecoration: "none", color: "inherit" }}>
-            <div className="grow">
-              <div className="title row" style={{ gap: 6 }}>
-                {w.sport}
-                {w.is_game && <span className="badge game">game</span>}
-                {w.source === "garmin" && <span className="badge garmin">garmin</span>}
+        {workouts?.map((w) => {
+          const look = sessionLook(w.is_game ? "game" : w.sport === "strength" ? "strength" : (w.rpe ?? 0) >= 7 ? "hard" : "easy", w.sport);
+          return (
+            <Link key={w.id} to={`/train/${w.id}`} className="list-row button" style={{ textDecoration: "none", color: "inherit" }}>
+              <span className={`icon-circle ${look.hue}`} style={{ width: 36, height: 36 }}><Icon name={look.icon} size={17} /></span>
+              <div className="grow">
+                <div className="title row" style={{ gap: 6 }}>
+                  {cap(w.sport)}
+                  {w.is_game && <span className="badge game">game</span>}
+                  {w.source === "garmin" && <span className="badge garmin">garmin</span>}
+                </div>
+                <div className="meta">
+                  {dayLabel(w.date ?? w.start_ts.slice(0, 10), today)} · {fmtDuration(w.duration_s)}
+                  {w.distance_m ? ` · ${showDistance(w.distance_m, units)} ${distUnit(units)} · ${showPace(w.distance_m, w.duration_s, units)}` : ""}
+                  {w.n_sets ? ` · ${w.n_sets} sets` : ""}
+                </div>
               </div>
-              <div className="meta">
-                {dayLabel(w.date ?? w.start_ts.slice(0, 10), today)} · {fmtDuration(w.duration_s)}
-                {w.distance_m ? ` · ${showDistance(w.distance_m, units)} ${distUnit(units)} · ${showPace(w.distance_m, w.duration_s, units)}` : ""}
-                {w.n_sets ? ` · ${w.n_sets} sets` : ""}
+              <div className="num small" style={{ textAlign: "right" }}>
+                {w.rpe ? `RPE ${w.rpe}` : <span className="warn">RPE?</span>}
+                <div className="tiny muted">{w.session_load ? `load ${Math.round(w.session_load)}` : ""}</div>
               </div>
-            </div>
-            <div className="num small" style={{ textAlign: "right" }}>
-              {w.rpe ? `RPE ${w.rpe}` : <span className="warn">RPE?</span>}
-              <div className="tiny muted">{w.session_load ? `load ${Math.round(w.session_load)}` : ""}</div>
-            </div>
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
       </div>
 
       {sheet === "game" && <GameSheet onClose={() => setSheet(null)} />}
@@ -101,6 +131,15 @@ export default function Train() {
       {(sheet === "plan" || editPlan) && (
         <PlanSheet planned={editPlan ?? undefined} onClose={() => { setSheet(null); setEditPlan(null); }} />
       )}
+    </div>
+  );
+}
+
+function WeekStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="eyebrow">{label}</div>
+      <div className="big-num md" style={{ marginTop: 6 }}>{value}</div>
     </div>
   );
 }
