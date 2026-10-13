@@ -113,11 +113,20 @@ class Generator:
         execute(c, """UPDATE core.profile SET birth_date = '1999-05-01', sex = 'male', height_cm = 180,
                       timezone = 'America/Chicago', ref_hr_bpm = 145, display_units = 'imperial'
                       WHERE id = 1""")
+        # Weight drifts down ~0.08 kg/week in the generator, so this 0.25 kg/week goal runs behind:
+        # the weekly goal check then has something to propose.
+        goal_start = self.start + timedelta(days=min(30, self.days // 3))
         insert(c, "core.goal", {"goal_type": "body_weight", "description": "Lean out to 175 lb for the season",
-                                "target_value": 79.4, "unit": "kg", "target_date": self.end + timedelta(days=60)},
-               returning=None)
-        insert(c, "core.goal", {"goal_type": "performance", "description": "Sub-21 5K", "target_value": 21,
-                                "unit": "min", "target_date": self.end + timedelta(days=120)}, returning=None)
+                                "metric": "weight_kg", "direction": "decrease", "target_value": 79.4, "unit": "kg",
+                                "rate_per_week": -0.25, "start_date": goal_start,
+                                "start_value": round(82.0 - 0.012 * (goal_start - self.start).days, 1),
+                                "target_date": self.end + timedelta(days=60)}, returning=None)
+        insert(c, "core.goal", {"goal_type": "performance", "description": "Sub-21 5K", "metric": "run_5k_min",
+                                "target_value": 21, "unit": "min", "start_value": 23.5, "start_date": goal_start,
+                                "target_date": self.end + timedelta(days=120)}, returning=None)
+        insert(c, "core.goal", {"goal_type": "habit", "description": "Sleep 7.5 h, 5 nights a week",
+                                "metric": "sleep_total_min", "target_value": 450, "unit": "min", "days_per_week": 5,
+                                "start_date": goal_start}, returning=None)
         for nutrient, basis, ev, lo, hi, ref in [
             ("kcal", "per_day", "daily", 2700, 3000, "demo goal"),
             ("fiber_g", "per_day", "weekly_avg", 38, None, "DRI adequate intake, men 19-50"),

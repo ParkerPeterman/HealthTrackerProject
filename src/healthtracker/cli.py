@@ -186,34 +186,44 @@ def status(limit: int = 15) -> None:
 
 @proposals_app.command("list")
 def proposals_list() -> None:
+    from healthtracker.goals.targets import pending_target_proposals
     from healthtracker.stats.tuning import pending_parameter_proposals
 
     with connect() as conn:
         params = pending_parameter_proposals(conn)
         status_changes = fetch_all(conn, "SELECT * FROM analytics.rule_status_change WHERE approved IS NULL")
+        targets = pending_target_proposals(conn)
     for p in params:
         typer.echo(f"param #{p['id']}: {p['rule_id']}.{p['name']} {p['old_value']} -> {p['new_value']}  {p['reason']}")
     for c in status_changes:
         typer.echo(f"status #{c['id']}: {c['rule_id']} {c['old_status']} -> {c['new_status']}  {c['reason']}")
-    if not params and not status_changes:
+    for t in targets:
+        typer.echo(f"target #{t['id']}: {t['nutrient']} {t['old_min']}-{t['old_max']} -> {t['new_min']}-{t['new_max']}  {t['reason']}")
+    if not params and not status_changes and not targets:
         typer.echo("nothing pending")
 
 
 @proposals_app.command("approve")
-def proposals_approve(kind: str = typer.Argument(..., help="param or status"), proposal_id: int = typer.Argument(...)) -> None:
+def proposals_approve(kind: str = typer.Argument(..., help="param, status, or target"), proposal_id: int = typer.Argument(...)) -> None:
     _decide(kind, proposal_id, True)
 
 
 @proposals_app.command("reject")
-def proposals_reject(kind: str = typer.Argument(..., help="param or status"), proposal_id: int = typer.Argument(...)) -> None:
+def proposals_reject(kind: str = typer.Argument(..., help="param, status, or target"), proposal_id: int = typer.Argument(...)) -> None:
     _decide(kind, proposal_id, False)
 
 
 def _decide(kind: str, proposal_id: int, approve: bool) -> None:
+    from healthtracker.goals.targets import decide_target
+    from healthtracker.pipeline.jobs import local_today
     from healthtracker.stats.promotion import decide_status
     from healthtracker.stats.tuning import decide_parameter
 
     with connect() as conn:
+        if kind == "target":
+            row = decide_target(conn, proposal_id, approve, local_today())
+            typer.echo(f"{'approved' if approve else 'rejected'}: {row['nutrient']} target")
+            return
         row = decide_parameter(conn, proposal_id, approve) if kind == "param" else decide_status(conn, proposal_id, approve)
     typer.echo(f"{'approved' if approve else 'rejected'}: {row['rule_id']}")
 

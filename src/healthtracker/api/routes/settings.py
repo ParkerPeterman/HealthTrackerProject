@@ -1,4 +1,4 @@
-"""Profile, goals, and nutrient targets."""
+"""Profile and nutrient targets. Goals live in routes/goals.py."""
 
 from __future__ import annotations
 
@@ -47,43 +47,6 @@ def put_profile(body: ProfileIn, conn: psycopg.Connection = Depends(get_conn)) -
             (body.birth_date, body.sex, body.height_cm, body.timezone, body.ref_hr_bpm, body.display_units,
              Jsonb(prefs), body.notes))
     return get_profile(conn)
-
-
-# ------------------------------------------------------------------ goals
-class GoalIn(BaseModel):
-    goal_type: Literal["body_weight", "performance", "health", "habit"]
-    description: str
-    target_value: float | None = None
-    unit: str | None = None
-    target_date: date | None = None
-    active: bool = True
-
-
-@router.get("/goals")
-def list_goals(conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
-    return to_jsonable(fetch_all(conn, "SELECT * FROM core.goal ORDER BY active DESC, id"))
-
-
-@router.post("/goals")
-def create_goal(body: GoalIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
-    gid = insert(conn, "core.goal", body.model_dump())
-    return to_jsonable(fetch_one(conn, "SELECT * FROM core.goal WHERE id = %s", (gid,)))
-
-
-@router.put("/goals/{goal_id}")
-def update_goal(goal_id: int, body: GoalIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
-    d = body.model_dump()
-    n = execute(conn, f"UPDATE core.goal SET {', '.join(f'{k} = %s' for k in d)} WHERE id = %s",
-                (*d.values(), goal_id))
-    if not n:
-        raise not_found()
-    return to_jsonable(fetch_one(conn, "SELECT * FROM core.goal WHERE id = %s", (goal_id,)))
-
-
-@router.delete("/goals/{goal_id}")
-def delete_goal(goal_id: int, conn: psycopg.Connection = Depends(get_conn)) -> dict:
-    execute(conn, "DELETE FROM core.goal WHERE id = %s", (goal_id,))
-    return {"ok": True}
 
 
 # ------------------------------------------------------------------ nutrient targets

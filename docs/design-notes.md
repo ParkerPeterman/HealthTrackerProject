@@ -88,6 +88,24 @@ decisions are logged in `rule_parameter_history`.
 - **Short-sleep minimum:** the threshold that best separates next-day energy.
 - **Post-game recovery days:** how many days HRV stays clearly below baseline after games.
 
+## Weight goals set the calorie target
+
+A calorie number goes stale as training load and body weight change, so a weight goal drives the
+target instead. Expenditure comes from my own data: average intake on complete food-log days
+minus the energy stored or lost, read off the least-squares slope of the smoothed weight over 28
+days at ~7,700 kcal/kg. It needs 14 complete days and 10 weigh-ins; until then a Mifflin-St Jeor
+estimate (with an activity factor from recent training minutes) is used for the goal screen only.
+The weekly job never proposes from the formula.
+
+Target = expenditure + planned rate × 7,700 / 7, rounded to 50 kcal, ±100. Safety caps: loss at
+most 1% of body weight per week, gain at most 0.5%, deficit at most 1,000 kcal/day, and a floor of
+1,500 (male) / 1,200 kcal. Protein is 2.0 g/kg while losing and 1.6 g/kg otherwise (ISSN position
+stand). Setting targets from the goal screen is an explicit choice; afterwards the weekly
+`goal_check` writes `analytics.target_proposal` rows when the plan moves by 100 kcal or 0.1 g/kg,
+and nothing changes until I approve. Progress is judged on the smoothed trend against the planned
+path, with a tolerance of one week's planned change (at least 0.45 kg), so one heavy morning never
+reads as "behind".
+
 ## Scheduling
 
 The plan calls the daily job "nightly", but last night's sleep only exists after the watch syncs

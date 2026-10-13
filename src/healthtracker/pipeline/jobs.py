@@ -4,7 +4,7 @@ Nightly (runs in the morning, after the watch syncs last night's sleep):
   ingest -> core -> daily_features -> grade earlier actions -> rules/flags
   -> recommendation + actions -> LLM message
 Weekly: hypotheses -> insights -> parameter tuning + rule promotion proposals
-  -> experiments -> next week's plan
+  -> experiments -> goal check (calorie/protein target proposals) -> next week's plan
 Every load is an upsert on a natural key, so any step can be re-run.
 """
 
@@ -17,6 +17,7 @@ from healthtracker.config import get_settings
 from healthtracker.db import connect
 from healthtracker.features.daily import build_daily_features
 from healthtracker.features.lifting import build_lift_progress, build_weekly_muscle_volume
+from healthtracker.goals.targets import run_goal_check
 from healthtracker.ingest.garmin import pull
 from healthtracker.llm.phrase import phrase
 from healthtracker.pipeline.runner import JobReport, run_step
@@ -113,6 +114,7 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "parameter_tuning", step(run_tuning), report)
     run_step("weekly", "rule_promotion", step(run_promotion), report)
     run_step("weekly", "experiments", step(update_experiments), report)
+    run_step("weekly", "goal_check", step(run_goal_check), report)
     next_monday = d + timedelta(days=(7 - d.weekday()) % 7 or 7)
     run_step("weekly", "week_plan", step(lambda conn, _d: write_week_plan(conn, next_monday)), report)
     return report
@@ -162,6 +164,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                     run_tuning(conn, d)
                     run_promotion(conn, d)
                     update_experiments(conn, d)
+                    run_goal_check(conn, d)
                     write_week_plan(conn, d + timedelta(days=1))
             d += timedelta(days=1)
         return total

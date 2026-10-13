@@ -9,14 +9,14 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from healthtracker.api.routes import body, coach, food, settings, training
+from healthtracker.api.routes import body, coach, food, goals, settings, training
 from healthtracker.config import get_settings
 from healthtracker.db import current_url
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 app = FastAPI(title="Health & Training Tracker", version="0.1.0")
-for r in (settings.router, food.router, training.router, body.router, coach.router):
+for r in (settings.router, goals.router, food.router, training.router, body.router, coach.router):
     app.include_router(r)
 
 

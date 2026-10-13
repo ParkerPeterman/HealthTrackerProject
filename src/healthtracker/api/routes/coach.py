@@ -12,7 +12,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from healthtracker.api.deps import bad_request, get_conn, local_date, not_found
+from healthtracker.api.routes.goals import goals_summary
 from healthtracker.db import execute, fetch_all, fetch_one
+from healthtracker.goals.targets import decide_target, pending_target_proposals
 from healthtracker.jsonutil import to_jsonable
 from healthtracker.stats.experiments import create_experiment, protocol_for
 from healthtracker.stats.promotion import decide_status, set_status
@@ -54,7 +56,8 @@ def today(day: date | None = None, conn: psycopg.Connection = Depends(get_conn))
                                                  WHERE c.injury_id = i.id AND c.date = %s) AS checked_in
                                   FROM core.injury i WHERE i.status <> 'resolved'""", (d,))
     pending = fetch_one(conn, """SELECT (SELECT count(*) FROM analytics.rule_parameter_history WHERE approved IS NULL)
-                                      + (SELECT count(*) FROM analytics.rule_status_change WHERE approved IS NULL) AS n""")
+                                      + (SELECT count(*) FROM analytics.rule_status_change WHERE approved IS NULL)
+                                      + (SELECT count(*) FROM analytics.target_proposal WHERE approved IS NULL) AS n""")
     last_run = fetch_one(conn, """
         SELECT r.job, min(r.started_at) AS started_at, max(r.finished_at) AS finished_at,
                bool_and(coalesce(r.status, 'ok') = 'ok') AS ok,
@@ -75,6 +78,7 @@ def today(day: date | None = None, conn: psycopg.Connection = Depends(get_conn))
         "planned": planned,
         "injuries": injuries,
         "pending_proposals": pending["n"] if pending else 0,
+        "goals": goals_summary(conn, d),
         "last_run": last_run,
     })
 
@@ -114,6 +118,7 @@ def action_note(action_id: int, body: NoteIn, conn: psycopg.Connection = Depends
 def proposals(conn: psycopg.Connection = Depends(get_conn)) -> dict:
     return to_jsonable({
         "parameters": pending_parameter_proposals(conn),
+        "targets": pending_target_proposals(conn),
         "statuses": fetch_all(conn, """SELECT c.*, r.description, r.evidence_level FROM analytics.rule_status_change c
                                        JOIN analytics.rule r USING (rule_id) WHERE c.approved IS NULL
                                        ORDER BY c.changed_at DESC"""),
@@ -136,6 +141,15 @@ class DecisionIn(BaseModel):
 def decide_param(proposal_id: int, body: DecisionIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
     try:
         decide_parameter(conn, proposal_id, body.approve)
+    except ValueError as exc:
+        raise bad_request(str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/proposals/target/{proposal_id}")
+def decide_nutrient_target(proposal_id: int, body: DecisionIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    try:
+        decide_target(conn, proposal_id, body.approve, local_date(conn))
     except ValueError as exc:
         raise bad_request(str(exc)) from exc
     return {"ok": True}
