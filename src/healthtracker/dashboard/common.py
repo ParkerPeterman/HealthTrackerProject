@@ -19,32 +19,50 @@ import streamlit as st
 from healthtracker.db import connect, fetch_df
 from healthtracker.units import Display
 
-LIGHT = {"series": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"], "muted": "#898781", "grid": "#e1e0d9",
-         "axis": "#c3c2b7", "band": "rgba(42,120,214,0.10)", "ink2": "#52514e", "neutral": "#c3c2b7"}
-DARK = {"series": ["#3987e5", "#d95926", "#199e70", "#c98500"], "muted": "#898781", "grid": "#2c2c2a",
-        "axis": "#383835", "band": "rgba(57,135,229,0.16)", "ink2": "#c3c2b7", "neutral": "#5a5955"}
-STATUS = {"good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b"}
+# The phone app's palette (web/src/styles.css): one saturated hue per metric on near-black.
+# Series slots: 0 HRV green, 1 sleep violet, 2 heart red, 3 load amber.
+DARK = {"series": ["#14f0a0", "#8b6dff", "#ff4f6e", "#ffa424"], "muted": "#7c7c86", "grid": "rgba(255,255,255,0.07)",
+        "axis": "rgba(255,255,255,0.13)", "band": "rgba(139,109,255,0.16)", "ink2": "#b6b6be", "neutral": "#45454d",
+        "ink": "#f4f4f5"}
+LIGHT = DARK  # the dashboard is dark-only, like the app
+STATUS = {"good": "#14f0a0", "warning": "#ffb21f", "serious": "#ff8540", "critical": "#ff4258"}
 STATUS_ICON = {"good": "✓", "warning": "!", "serious": "!!", "critical": "✕"}
 RANGES = {"30 days": 30, "90 days": 90, "6 months": 182, "1 year": 365, "All": 3650}
 
 
 def setup(title: str) -> None:
     st.set_page_config(page_title=f"{title} · Health tracker", page_icon="📈", layout="wide")
+    # Theme (colors, fonts, radius) lives in .streamlit/config.toml; this adds the app's card look,
+    # its small-caps labels, the soft violet glow at the top, and phone-sized spacing.
     st.markdown(
         """<style>
-        .block-container {padding-top: 2rem; max-width: 1280px;}
-        div[data-testid="stMetricValue"] {font-variant-numeric: normal;}
+        .stApp {background: radial-gradient(120% 40% at 50% -10%, rgba(139,109,255,0.14), transparent 60%), #050506;}
+        .block-container {padding-top: 2.2rem; padding-bottom: 4rem; max-width: 1180px;}
+        h1, h2, h3 {letter-spacing: -0.025em;}
+        h1 {font-weight: 600;}
+        div[data-testid="stMetric"] {background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012)), #111114;
+            border: 1px solid rgba(255,255,255,0.07); border-radius: 22px; padding: 14px 16px;}
+        div[data-testid="stMetricLabel"] p {font-family: "Geist Mono", monospace; font-size: 0.7rem; letter-spacing: 0.08em;
+            text-transform: uppercase; color: #7c7c86;}
+        div[data-testid="stMetricValue"] {font-family: "Domine", serif; font-weight: 600; letter-spacing: -0.025em;
+            font-variant-numeric: tabular-nums;}
+        div[data-testid="stPlotlyChart"], div[data-testid="stDataFrame"] {background: #111114; border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 22px; padding: 6px 8px;}
+        div[data-testid="stExpander"] details {border-radius: 18px;}
+        div[data-testid="stCaptionContainer"] {color: #7c7c86;}
+        @media (max-width: 640px) {
+          .block-container {padding: 1.2rem 0.75rem 4rem;}
+          h1 {font-size: 1.9rem !important;}
+          div[data-testid="stMetric"] {padding: 12px 14px;}
+          div[data-testid="stPlotlyChart"] {padding: 4px 2px;}
+        }
         </style>""",
         unsafe_allow_html=True,
     )
 
 
 def palette() -> dict:
-    try:
-        dark = st.context.theme.type == "dark"
-    except Exception:  # noqa: BLE001 - older Streamlit or no theme info
-        dark = False
-    return DARK if dark else LIGHT
+    return DARK
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -85,10 +103,16 @@ def empty_state(msg: str = "No data yet for this view.") -> None:
 def base_layout(fig: go.Figure, title: str, y_title: str = "", height: int = 300, legend: bool = True) -> go.Figure:
     pal = palette()
     fig.update_layout(
-        title={"text": title, "x": 0, "xanchor": "left", "font": {"size": 15}},
-        height=height, margin={"l": 8, "r": 8, "t": 44, "b": 8},
+        title={"text": title, "x": 0, "xanchor": "left",
+               "font": {"size": 16, "family": "Domine, Georgia, serif", "color": pal["ink"]}},
+        font={"family": "Geist, system-ui, sans-serif", "color": pal["ink2"], "size": 12},
+        height=height, margin={"l": 8, "r": 8, "t": 72 if legend else 48, "b": 8},
         hovermode="x unified", showlegend=legend,
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "xanchor": "right", "x": 1, "title": None},
+        # Legend in its own row under the title: top-right collides with the title on a phone,
+        # and below the plot it collides with two-line date ticks.
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.01, "xanchor": "left", "x": 0, "title": None,
+                "font": {"color": pal["ink2"]}},
+        hoverlabel={"bgcolor": "#1a1a1f", "bordercolor": pal["axis"], "font": {"family": "Geist", "color": pal["ink"]}},
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
     )
     fig.update_xaxes(showgrid=False, linecolor=pal["axis"], ticks="", title=None)

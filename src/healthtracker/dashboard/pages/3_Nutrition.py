@@ -52,6 +52,22 @@ for i, (col, name) in enumerate((("protein_g", "protein"), ("carbs_g", "carbs"),
     c.line(fig, macros["date"], macros[col], name, slot=i, mode="lines+markers", fmt=".0f")
 c.show(c.base_layout(fig, "Macros", "grams", height=280), macros, key="macros")
 
+st.subheader("Water")
+water = c.query("""SELECT (ts AT TIME ZONE %(tz)s)::date AS date, sum(ml) AS ml FROM core.water_entry
+                   WHERE (ts AT TIME ZONE %(tz)s)::date BETWEEN %(s)s AND %(e)s GROUP BY 1 ORDER BY 1""",
+                {"tz": c.profile().get("timezone") or "UTC", "s": start, "e": end})
+if water.empty:
+    c.empty_state("No water logged in this range. Add drinks from the Today or Food tab in the app.")
+else:
+    imperial = c.display().imperial
+    unit, per_ml = ("oz", 1 / 29.5735) if imperial else ("L", 1 / 1000)
+    water["amount"] = (water["ml"].astype(float) * per_ml).round(0 if imperial else 2)
+    fig = go.Figure()
+    c.bars(fig, pd.to_datetime(water["date"]), water["amount"], f"water ({unit})", slot=0, fmt=".0f" if imperial else ".2f",
+           colors="#3ee0ff")
+    c.show(c.base_layout(fig, "Water per day", unit, legend=False), water[["date", "amount"]].rename(columns={"amount": unit}),
+           key="water")
+
 st.subheader("Weekly micronutrients vs targets")
 micro_t = targets[(targets["evaluation"] == "weekly_avg") & (targets["basis"] == "per_day")]
 if micro_t.empty:

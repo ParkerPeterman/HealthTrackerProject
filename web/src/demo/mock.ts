@@ -26,6 +26,13 @@ let lastId = 5000;
 const newId = () => ++lastId;
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
+// ------------------------------------------------------------------ water
+const water: { id: number; ts: string; ml: number }[] = [
+  { id: newId(), ts: at(TODAY, 7, 50), ml: 500 },
+  { id: newId(), ts: at(TODAY, 10, 15), ml: 236.6 },
+  { id: newId(), ts: at(TODAY, 12, 40), ml: 500 },
+];
+
 // ------------------------------------------------------------------ profile and targets
 let profile: Profile = {
   birth_date: "1996-04-12", sex: "male", height_cm: 183, timezone: "America/Chicago", ref_hr_bpm: 145,
@@ -814,6 +821,19 @@ const routes: [string, RegExp, Handler][] = [
     const f = F(newId(), "Protein bar, salted caramel", "Barebells", "1 bar (55 g)", 200, 20, 18, 7, 2, { barcode: m[1], origin: "open_food_facts", verified: false });
     foods.push(f);
     return { ...f, found_in: "open_food_facts" };
+  }],
+  ["GET", /^\/water\/([\d-]+)$/, (m) => {
+    const list = water.filter((w) => localDate(w.ts) === m[1]);
+    return { date: m[1], total_ml: list.reduce((s, w) => s + w.ml, 0), target_ml: 2700, target_basis: "weight", entries: list };
+  }],
+  ["POST", /^\/water$/, (_m, _q, b) => {
+    const w = { id: newId(), ts: b.ts ?? new Date().toISOString(), ml: b.ml };
+    water.push(w);
+    return w;
+  }],
+  ["DELETE", /^\/water\/(\d+)$/, (m) => {
+    remove(water, m[1]);
+    return { ok: true };
   }],
   ["POST", /^\/foods$/, (_m, _q, b) => {
     const f = F(newId(), b.name, b.brand, b.serving_desc, b.kcal, b.protein_g, b.carbs_g, b.fat_g, b.fiber_g ?? 0, {

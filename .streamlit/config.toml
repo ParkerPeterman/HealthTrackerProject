@@ -1,12 +1,46 @@
 [client]
 toolbarMode = "viewer"
 
+# Matches the phone app: near-black canvas, white primary, one hue per metric,
+# Domine headings, Geist text, Geist Mono labels. Fonts are served locally from
+# src/healthtracker/dashboard/static (no calls to a font CDN).
 [theme]
-primaryColor = "#2f5a47"
-font = "sans serif"
+base = "dark"
+primaryColor = "#8b6dff"
+backgroundColor = "#050506"
+secondaryBackgroundColor = "#111114"
+textColor = "#f4f4f5"
+linkColor = "#8b6dff"
+borderColor = "#25252b"
+showWidgetBorder = true
+baseRadius = "14px"
+font = "Geist"
+headingFont = "Domine"
+codeFont = "Geist Mono"
+chartCategoricalColors = ["#14f0a0", "#8b6dff", "#ff4f6e", "#ffa424", "#2fb5ff", "#ff8540", "#3ee0ff"]
+
+[[theme.fontFaces]]
+family = "Geist"
+url = "app/static/fonts/geist-latin-wght-normal.woff2"
+weight = "100 900"
+
+[[theme.fontFaces]]
+family = "Domine"
+url = "app/static/fonts/domine-latin-wght-normal.woff2"
+weight = "400 700"
+
+[[theme.fontFaces]]
+family = "Geist Mono"
+url = "app/static/fonts/geist-mono-latin-wght-normal.woff2"
+weight = "100 900"
+
+[theme.sidebar]
+backgroundColor = "#0b0b0e"
+secondaryBackgroundColor = "#1a1a1f"
 
 [server]
 headless = true
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false

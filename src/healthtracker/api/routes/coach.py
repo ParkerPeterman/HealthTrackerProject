@@ -58,13 +58,19 @@ def today(day: date | None = None, conn: psycopg.Connection = Depends(get_conn))
     pending = fetch_one(conn, """SELECT (SELECT count(*) FROM analytics.rule_parameter_history WHERE approved IS NULL)
                                       + (SELECT count(*) FROM analytics.rule_status_change WHERE approved IS NULL)
                                       + (SELECT count(*) FROM analytics.target_proposal WHERE approved IS NULL) AS n""")
+    # Steps carry no run id, but a step appears once per run: the latest run is everything after
+    # the newest second-to-last occurrence of any step. (A time window merged a failed run with a
+    # good one minutes later and kept reporting the old failure.)
     last_run = fetch_one(conn, """
+        WITH l AS (SELECT job FROM analytics.pipeline_run ORDER BY id DESC LIMIT 1),
+             r AS (SELECT p.*, row_number() OVER (PARTITION BY p.step ORDER BY p.id DESC) AS k
+                   FROM analytics.pipeline_run p JOIN l USING (job)),
+             cut AS (SELECT coalesce(max(id), 0) AS id FROM r WHERE k = 2)
         SELECT r.job, min(r.started_at) AS started_at, max(r.finished_at) AS finished_at,
                bool_and(coalesce(r.status, 'ok') = 'ok') AS ok,
                string_agg(r.step, ', ') FILTER (WHERE r.status = 'failed') AS failed_steps
-        FROM analytics.pipeline_run r,
-             (SELECT job, started_at FROM analytics.pipeline_run ORDER BY id DESC LIMIT 1) l
-        WHERE r.job = l.job AND r.started_at > l.started_at - interval '30 minutes'
+        FROM r, cut
+        WHERE r.id > cut.id
         GROUP BY r.job""")
     return to_jsonable({
         "date": d,

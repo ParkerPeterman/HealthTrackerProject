@@ -2,7 +2,9 @@
 #
 # "Nightly" runs in the morning: last night's sleep and HRV only exist after
 # the watch syncs when you wake up. It runs twice to catch a late sync; every
-# step is an upsert, so the second run just refreshes.
+# step is an upsert, so the second run just refreshes. The 04:00 run picks up
+# yesterday's workouts and logs early; sleep and HRV arrive with the later runs.
+0 4 * * *    healthtracker nightly
 30 7 * * *   healthtracker nightly
 30 10 * * *  healthtracker nightly
 

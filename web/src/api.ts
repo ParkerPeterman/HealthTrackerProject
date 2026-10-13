@@ -101,6 +101,14 @@ export interface FoodEntry {
   alcohol_g: number | null;
 }
 
+export interface WaterDay {
+  date: string;
+  total_ml: number;
+  target_ml: number;
+  target_basis: "weight" | "default";
+  entries: { id: number; ts: string; ml: number }[];
+}
+
 export interface FoodDay {
   date: string;
   complete: boolean;

@@ -21,6 +21,7 @@
   --load: #ffa424;
   --food: #2fb5ff;
   --protein: #ff8540;
+  --water: #3ee0ff;
 
   --good: #14f0a0;
   --warn: #ffb21f;
@@ -200,6 +201,7 @@ button.card { cursor: pointer; text-align: left; }
 .hue-load { --hue: var(--load); }
 .hue-food { --hue: var(--food); }
 .hue-protein { --hue: var(--protein); }
+.hue-water { --hue: var(--water); }
 .hue-muted { --hue: var(--muted); }
 .hue-signal { --hue: var(--signal); }
 .hue-good { --hue: var(--good); }

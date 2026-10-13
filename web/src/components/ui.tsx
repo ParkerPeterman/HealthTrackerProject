@@ -92,15 +92,31 @@ export function Stepper({
   value: number; onChange: (v: number) => void; step?: number; min?: number; max?: number; digits?: number; label: string;
 }) {
   const clamp = (v: number) => Math.min(max, Math.max(min, Math.round(v / step) * step));
+  const shown = Number.isFinite(value) ? value.toFixed(digits) : "";
+  // While typing, keep the raw text: clamping or reformatting each keystroke turns "1" into the
+  // minimum and makes values like 170 impossible to enter. Check and tidy it when typing ends.
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft == null) return;
+    const v = parseFloat(draft.replace(",", "."));
+    if (Number.isFinite(v)) onChange(Math.min(max, Math.max(min, v)));
+    setDraft(null);
+  };
   return (
     <div className="stepper">
       <button type="button" onClick={() => onChange(clamp(value - step))} aria-label={`Less ${label}`}>−</button>
       <input
-        inputMode="decimal" aria-label={label} value={Number.isFinite(value) ? value.toFixed(digits) : ""}
+        inputMode="decimal" aria-label={label} value={draft ?? shown}
+        onFocus={(e) => { setDraft(shown); e.target.select(); }}
         onChange={(e) => {
-          const v = parseFloat(e.target.value);
-          if (!Number.isNaN(v)) onChange(Math.min(max, Math.max(min, v)));
+          const txt = e.target.value;
+          setDraft(txt);
+          // Pass along values already in range so a Save tapped mid-edit uses what's typed.
+          const v = parseFloat(txt.replace(",", "."));
+          if (Number.isFinite(v) && v >= min && v <= max) onChange(v);
         }}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
       />
       <button type="button" onClick={() => onChange(clamp(value + step))} aria-label={`More ${label}`}>+</button>
     </div>
@@ -303,6 +319,7 @@ const PATHS: Record<string, string> = {
   kettlebell: "M9 8.5a3 3 0 1 1 6 0M7.5 8.5h9l1.5 11.5H6z",
   alert: "M12 4l9 16H3zM12 10v4M12 17h.01",
   scale: "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8.5 10a3.5 3.5 0 0 1 7 0M12 10l1.5-2.2",
+  drop: "M12 3.5c3.2 4 6 7.3 6 10.5a6 6 0 0 1-12 0c0-3.2 2.8-6.5 6-10.5z",
   target: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9M12 11.2a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6",
 };
 

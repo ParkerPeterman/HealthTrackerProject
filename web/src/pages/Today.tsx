@@ -10,6 +10,7 @@ import { fromKg, showWeight, toKg, weightUnit } from "../units";
 import { GameSheet } from "./Train";
 import { CheckinSheet } from "./Body";
 import { STATUS } from "../goals";
+import { WaterCard } from "../components/Water";
 
 const num = (v: number | string | undefined) => (v == null || v === "" ? undefined : Number(v));
 
@@ -155,6 +156,7 @@ export default function Today() {
       <h3 className="section-title">Check-in</h3>
       <JournalCard date={data.date} journal={data.journal} />
       <WeightCard weightKg={data.weight?.weight_kg ?? null} units={units} />
+      <WaterCard />
 
       <h3 className="section-title">Food</h3>
       <FoodSummary date={data.date} food={data.food} />

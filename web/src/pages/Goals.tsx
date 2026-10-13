@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   api, type Goal, type GoalMetrics, type GoalPlan, type GoalType, type Target,
@@ -208,6 +208,10 @@ const PACES: Record<Units, { lose: number[]; gain: number[] }> = {
   metric: { lose: [0.1, 0.25, 0.35, 0.5], gain: [0.1, 0.25] },
 };
 
+/** Names in the generated formats (see autoDesc). Old ones that no longer match their goal are
+ *  regenerated rather than kept as if the user had typed them. */
+const GENERATED_NAME = /^(Lose to|Gain to|Hold) [\d.]+ (lb|kg)$|^(5K in|Resting HR|HRV|VO₂ max) |^Sleep [\d.]+ h, \d nights a week$|g\/kg protein, \d|^Complete food log, \d|^Train \d (day|days) a week$|drinks or fewer, \d| at reference HR$| 1RM$/;
+
 /** Stored metric value → what the user types in the target field. */
 function toInput(metric: string, v: number | null, units: Units): string {
   if (v == null) return "";
@@ -252,7 +256,9 @@ function GoalSheet({ goal, onClose }: { goal?: Goal; onClose: () => void }) {
   const [days, setDays] = useState(goal?.days_per_week ?? 5);
   const [date, setDate] = useState(goal?.target_date ?? "");
   const [desc, setDesc] = useState(goal?.description ?? "");
-  const [descTouched, setDescTouched] = useState(!!goal);
+  const [descTouched, setDescTouched] = useState(false);
+  // Name as generated when the sheet opened (once lift names have loaded).
+  const openedAuto = useRef<string | null>(null);
 
   // Prefill a weight target 5 lb (2.5 kg) from today's trend once it loads.
   const nowKg = currentOf("weight_kg");
@@ -308,6 +314,12 @@ function GoalSheet({ goal, onClose }: { goal?: Goal; onClose: () => void }) {
     }[metric] ?? "Goal";
   }, [type, dir, targetW, units, days, habitVal, metric, levelTarget, lift]);
 
+  // A saved name counts as custom only if the user changed it from the generated one; otherwise
+  // it follows the goal, so switching lose → gain or the target retitles it.
+  if (openedAuto.current === null && (!goal || metrics)) openedAuto.current = autoDesc;
+  const customName = descTouched || (!!goal && openedAuto.current !== null && goal.description !== openedAuto.current
+    && !GENERATED_NAME.test(goal.description));
+
   const ready = type === "body_weight" ? targetW != null
     : type === "habit" ? true
     : levelTarget != null && (metric !== "e1rm_kg" || exerciseId != null);
@@ -315,7 +327,7 @@ function GoalSheet({ goal, onClose }: { goal?: Goal; onClose: () => void }) {
   const refresh = () => ["goals", "today", "targets", "food-day", "proposals", "goal-metrics"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   const save = (active = goal?.active ?? true) => run(async () => {
     const body = {
-      goal_type: type, description: (descTouched && desc.trim()) || autoDesc,
+      goal_type: type, description: (customName && (descTouched ? desc : goal?.description ?? "").trim()) || autoDesc,
       metric: type === "body_weight" ? "weight_kg" : metric,
       direction: type === "body_weight" ? dir : null,
       target_value: type === "body_weight" ? targetKg : type === "habit" ? habitTarget : levelTarget,
@@ -422,7 +434,8 @@ function GoalSheet({ goal, onClose }: { goal?: Goal; onClose: () => void }) {
         )}
 
         <label className="field">Name
-          <input value={descTouched ? desc : autoDesc} onChange={(e) => { setDesc(e.target.value); setDescTouched(true); }} />
+          <input value={descTouched ? desc : customName ? goal?.description ?? "" : autoDesc}
+                 onChange={(e) => { setDesc(e.target.value); setDescTouched(true); }} />
         </label>
         <button className="btn primary" disabled={!ready} onClick={() => save()}>{goal ? "Save" : "Set goal"}</button>
         {goal && (

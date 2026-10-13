@@ -33,6 +33,15 @@ export function showPace(distanceM: number | null, durationS: number, u: Units):
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}/${distUnit(u)}`;
 }
 
+const ML_PER_OZ = 29.5735;
+
+/** Water: fluid ounces in imperial, litres (or ml under 1 L) in metric. */
+export function showVolume(ml: number, u: Units): string {
+  if (u === "imperial") return `${Math.round(ml / ML_PER_OZ)} oz`;
+  return ml >= 1000 ? `${(ml / 1000).toFixed(1)} L` : `${Math.round(ml)} ml`;
+}
+export const volumeToMl = (value: number, u: Units) => (u === "imperial" ? value * ML_PER_OZ : value);
+
 /** A sensible plate-math step for the weight stepper. */
 export const weightStep = (u: Units) => (u === "imperial" ? 5 : 2.5);
 

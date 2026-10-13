@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { api, type Food as FoodItem, type FoodDay, type FoodEntry, type Meal, type SavedMeal } from "../api";
 import { Scanner } from "../components/Scanner";
+import { WaterCard } from "../components/Water";
 import { Bar, Chips, Empty, Icon, Ring, Sheet, Stepper, useRun } from "../components/ui";
 import { addDays, dayLabel, isoDate, mealForNow, onDateNow, timeLabel, toLocalInput } from "../dates";
 import { round } from "../units";
@@ -74,6 +75,7 @@ export default function Food() {
       </section>
 
       <button className="btn primary block" onClick={() => setAdding(true)}><Icon name="plus" size={18} /> Add food</button>
+      <WaterCard date={date} />
 
       {byMeal.length === 0 && <Empty>No food logged for {dayLabel(date).toLowerCase()}.</Empty>}
       {byMeal.map(([meal, entries]) => (
