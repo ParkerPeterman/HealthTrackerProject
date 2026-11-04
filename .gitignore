@@ -25,3 +25,6 @@ web/dev-dist/
 
 # personal planning notes stay local unless you choose to commit them
 ReferenceResources/
+
+# private planning brief (names medication and injury history; this repo is public)
+docs/analysisupgrade.md
