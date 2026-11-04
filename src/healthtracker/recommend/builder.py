@@ -76,7 +76,10 @@ def build_status(ctx: RuleContext) -> dict:
             "load_yesterday": _r(y.get("session_load")),
             "load_7d": _r(y.get("acute_load_7d")),
             "weekly_avg_load_28d": _r(y.get("chronic_load_28d")),
-            "acute_chronic_ratio": _r(y.get("acwr"), 2),
+            "acute_chronic_ratio": _r(y.get("acwr"), 2),  # descriptive only (D1)
+            "internal_load_7d": _r(y.get("load_week")),
+            "internal_load_change_vs_prior_week_pct": _r(y.get("load_week_change_pct")),
+            "chronic_internal_load_per_week": _r(y.get("chronic_ewma") * 7) if y.get("chronic_ewma") is not None else None,
             "days_since_game": _r(y.get("days_since_game")),
             "next_game_in_days": _r(t.get("next_game_in_days")),
             f"run_{d.distance_unit}_7d": d.distance_km(y.get("run_km_7d")),

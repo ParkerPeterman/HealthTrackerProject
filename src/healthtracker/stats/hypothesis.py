@@ -26,7 +26,8 @@ from healthtracker.units import fmt_hour
 EXPOSURE_RE = re.compile(r"^\s*([a-z][a-z0-9_]*)\s*(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)?\s*$")
 
 LOAD_FAMILY = {"session_load", "had_game", "acwr", "load_z_28d", "days_since_hard", "days_since_game",
-               "acute_load_7d", "chronic_load_28d", "run_km_7d", "n_workouts"}
+               "acute_load_7d", "chronic_load_28d", "run_km_7d", "n_workouts", "load_internal", "acute_ewma",
+               "chronic_ewma", "load_week", "load_week_change_pct", "run_load_week"}
 SLEEP_FAMILY = {"sleep_total_min", "sleep_score", "sleep_midpoint_min", "sleep_score_z_30d"}
 OVERNIGHT_OUTCOMES = SLEEP_FAMILY | {"hrv", "resting_hr", "hrv_z_30d", "rhr_z_30d"}
 

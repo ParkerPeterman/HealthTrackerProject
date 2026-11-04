@@ -87,7 +87,8 @@ def plan_week(conn: psycopg.Connection, week_start: date) -> dict:
     f = fetch_one(conn, "SELECT * FROM analytics.daily_features WHERE date < %s ORDER BY date DESC LIMIT 1",
                   (week_start,)) or {}
     chronic = f.get("chronic_load_28d") or COLD_START_WEEKLY_LOAD
-    acwr = f.get("acwr")
+    acwr = f.get("acwr")  # reported, not used for decisions
+    change = f.get("load_week_change_pct")
     flags = fetch_all(conn, """SELECT rule_id FROM analytics.daily_flag WHERE fired
                                AND date >= %s AND rule_id IN ('RECOV_ILLNESS_FLAG','RECOV_HIGH_LOAD_LOW_HRV',
                                'INJ_RETURN_TO_PLAY') AND (details->>'eval_status') = 'evaluated'
@@ -96,10 +97,11 @@ def plan_week(conn: psycopg.Connection, week_start: date) -> dict:
     caution = sorted({r["rule_id"] for r in flags})
     if caution:
         factor, why = 0.85, f"recent recovery flags ({', '.join(caution)})"
-    elif acwr is not None and acwr > 1.3:
-        factor, why = 0.9, f"acute:chronic {acwr:.2f} is high"
-    elif acwr is not None and acwr < 0.8:
-        factor, why = 1 + ramp / 100, f"acute:chronic {acwr:.2f} is low, building back"
+    # D1: decisions use the week-over-week change and absolute chronic load; ACWR is descriptive only.
+    elif change is not None and change > ramp:
+        factor, why = 0.9, f"last week's load rose {change:.0f}%, more than the {ramp:.0f}% cap"
+    elif change is not None and change < -30:
+        factor, why = 1 + ramp / 100, f"last week's load fell {abs(change):.0f}%: building back within the cap"
     else:
         factor, why = 1.05, "recovery looks normal: small progression"
     target = round(min(chronic * factor, chronic * (1 + ramp / 100)))

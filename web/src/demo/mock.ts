@@ -401,7 +401,8 @@ const STATUS = {
     sleep_last_night: "7h32", sleep_score: 82, hrv_7d_ms: 59, hrv_cv_7d_pct: 2.3, resting_hr_7d_bpm: 48,
     baseline_learning_days: 21 },
   training: { load_yesterday: 744, load_7d: 2310, weekly_avg_load_28d: 2480, acute_chronic_ratio: 0.93, days_since_game: 1,
-    next_game_in_days: 4, run_mi_7d: 11.4, vo2max: 52.1 },
+    next_game_in_days: 4, run_mi_7d: 11.4, vo2max: 52.1,
+    internal_load_7d: 980, internal_load_change_vs_prior_week_pct: 6, chronic_internal_load_per_week: 940 },
   nutrition_yesterday: { kcal: 2715, protein_g: 108, protein_g_per_kg: 1.3, carbs_g: 331, fat_g: 92, fiber_g: 29,
     caffeine_mg: 200, last_caffeine: "8 am", alcohol_drinks: 2.4 },
 };

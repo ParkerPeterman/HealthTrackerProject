@@ -34,6 +34,9 @@ FEATURE_COLUMNS = [
     "watch_overnight", "sleep_plausible", "is_sick", "is_travel", "tag_alcohol", "tag_stress", "tag_dizzy",
     "tag_dizzy_training", "tag_hamstring", "tag_groin", "tz_offset_min", "tz_change", "dst_week",
     "ln_hrv", "resp_rate", "load_internal",
+    # D1 decisions: uncoupled EWMAs and week-over-week change per channel
+    "acute_ewma", "chronic_ewma", "load_week", "load_week_prev", "load_week_change_pct", "run_load_week",
+    "run_load_week_prev", "plyo_week", "plyo_week_prev", "sprint_week", "sprint_week_prev",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -273,6 +276,7 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     internal = fetch_df(conn, "SELECT date, value AS load_internal FROM analytics.load_daily WHERE channel = 'internal'")
     join(internal, ["load_internal"])
     df["load_internal"] = df["load_internal"].astype(float).fillna(0.0).round(1)
+    load_decisions(df, conn)
 
     # planned games ahead
     games = fetch_df(conn, """SELECT date FROM core.planned_session
@@ -384,6 +388,34 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     out = df[FEATURE_COLUMNS].reset_index()
     out["date"] = out["date"].dt.date
     return out
+
+
+def weekly_change(this_week: pd.Series, last_week: pd.Series) -> pd.Series:
+    """Week-over-week change in %, undefined when last week had nothing."""
+    return ((this_week - last_week) / last_week * 100).where(last_week > 0).round(1)
+
+
+def load_decisions(df: pd.DataFrame, conn: psycopg.Connection) -> None:
+    """D1: acute and chronic load as separate EWMAs, the chronic one ending before the acute week
+    (no coupling), and week-over-week totals for internal load, running, sprints, and jumps."""
+    load = df["load_internal"]
+    df["acute_ewma"] = load.ewm(span=7, adjust=False).mean().round(1)
+    # Chronic: 28-day EWMA of everything up to 7 days ago, so the latest week isn't in both terms.
+    df["chronic_ewma"] = load.ewm(span=28, adjust=False).mean().shift(7).round(1)
+    df.loc[df.index[:21], "chronic_ewma"] = np.nan  # too little history to call it chronic
+    channels = fetch_df(conn, """SELECT date, channel, value FROM analytics.load_daily
+                                 WHERE channel IN ('internal_run', 'plyo_contacts', 'sprint_m')""")
+    wide = pd.DataFrame(index=df.index)
+    if not channels.empty:
+        channels["date"] = pd.to_datetime(channels["date"])
+        wide = channels.pivot_table(index="date", columns="channel", values="value", aggfunc="sum").reindex(df.index)
+    for src, name in (("load_internal", "load_week"), ("internal_run", "run_load_week"),
+                      ("plyo_contacts", "plyo_week"), ("sprint_m", "sprint_week")):
+        daily = (df[src] if src in df else wide[src] if src in wide else pd.Series(0.0, index=df.index))
+        week = daily.astype(float).fillna(0.0).rolling(7, min_periods=7).sum()
+        df[name] = week.round(1)
+        df[f"{name}_prev"] = week.shift(7).round(1)
+    df["load_week_change_pct"] = weekly_change(df["load_week"], df["load_week_prev"])
 
 
 def _home_offsets(index: pd.DatetimeIndex, tz: str) -> pd.Series:

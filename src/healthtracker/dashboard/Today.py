@@ -53,7 +53,7 @@ elif acwr < 0.8:
     lvl, txt = "warning", f"ACWR {acwr:.2f} (detraining)"
 else:
     lvl, txt = "good", f"ACWR {acwr:.2f} (sweet spot)"
-cols[3].metric("7-day load", _v(y.get("acute_load_7d")), help="session RPE x minutes, last 7 days")
+cols[3].metric("7-day load", _v(y.get("load_week")), help="internal load (TRIMP, or effort x minutes calibrated to it), last 7 days; the ratio below is descriptive")
 cols[3].markdown(c.status_chip(lvl, txt), unsafe_allow_html=True)
 
 st.divider()

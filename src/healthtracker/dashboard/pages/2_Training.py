@@ -42,7 +42,8 @@ with left:
     fig = go.Figure()
     c.band(fig, 0.8, 1.3, "0.8-1.3")
     c.line(fig, f["date"], f["acwr"], "ACWR", slot=0, fmt=".2f")
-    c.show(c.base_layout(fig, "Acute:chronic workload ratio", "ratio", legend=False), key="ratio")
+    c.show(c.base_layout(fig, "Acute:chronic ratio (descriptive only; decisions use weekly change)", "ratio",
+                         legend=False), key="ratio")
 with right:
     pace = f["pace_at_ref_hr_s_km"]
     if d.imperial:

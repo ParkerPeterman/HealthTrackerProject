@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type DayTags, type FoodDay, type GoalSummary, type Journal, type Planned, type TagCode, type Today as TodayData } from "../api";
 import {
-  cap, CoachText, Empty, Gauge, Icon, Ring, ScaleRow, sessionLook, Stars, Stepper, useRun, useUnits,
+  cap, CoachText, Empty, Icon, Ring, ScaleRow, sessionLook, Stars, Stepper, useRun, useUnits,
 } from "../components/ui";
 import { addDays, dayLabel, isoDate } from "../dates";
 import { fromKg, showWeight, toKg, weightUnit } from "../units";
@@ -98,8 +98,8 @@ export default function Today() {
         <SevenDay rv={rv} />
       </section>
 
-      <LoadCard load7={num(tr.load_7d)} acwr={num(tr.acute_chronic_ratio)} yesterday={num(tr.load_yesterday)}
-                avg28={num(tr.weekly_avg_load_28d)} />
+      <LoadCard load7={num(tr.internal_load_7d) ?? num(tr.load_7d)} change={num(tr.internal_load_change_vs_prior_week_pct)}
+                acwr={num(tr.acute_chronic_ratio)} chronic={num(tr.chronic_internal_load_per_week)} />
 
       <section className="card hero" aria-label="Today's coaching">
         <div className="spread" style={{ marginBottom: 14 }}>
@@ -241,10 +241,12 @@ function SevenDay({ rv }: { rv: Record<string, number | string | number[]> }) {
   );
 }
 
-function LoadCard({ load7, acwr, yesterday, avg28 }: {
-  load7: number | undefined; acwr: number | undefined; yesterday: number | undefined; avg28: number | undefined;
+/** D1: decisions use the week-over-week change and chronic load; the ratio is shown only as a description. */
+function LoadCard({ load7, change, acwr, chronic }: {
+  load7: number | undefined; change: number | undefined; acwr: number | undefined; chronic: number | undefined;
 }) {
   const fmt = (v: number | undefined) => (v == null ? "–" : Math.round(v).toLocaleString());
+  const cls = change == null ? "muted" : change > 10 ? "warn" : "good";
   return (
     <section className="card" aria-label="Training load">
       <div className="spread" style={{ alignItems: "flex-end" }}>
@@ -253,14 +255,12 @@ function LoadCard({ load7, acwr, yesterday, avg28 }: {
           <div className="big-num">{fmt(load7)}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>Acute : chronic</div>
-          <div className="big-num md">{acwr?.toFixed(2) ?? "–"}</div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>vs last week</div>
+          <div className={`big-num md ${cls}`}>{change == null ? "–" : `${change > 0 ? "+" : ""}${Math.round(change)}%`}</div>
         </div>
       </div>
-      <Gauge value={acwr} min={0.4} max={1.8} band={[0.8, 1.3]} hue="load" ticks={[0.4, 0.8, 1.3, 1.8]}
-             label={`Acute to chronic load ratio ${acwr ?? "unknown"}; shaded range 0.8 to 1.3`} />
-      <div className="tiny muted" style={{ marginTop: 6 }}>
-        Yesterday {fmt(yesterday)} · 4-week weekly average {fmt(avg28)} · load = RPE × minutes
+      <div className="tiny muted" style={{ marginTop: 10 }}>
+        Usual week {fmt(chronic)} · acute:chronic {acwr?.toFixed(2) ?? "–"} (descriptive) · runs, rides: heart-rate load; games, lifts: effort × minutes
       </div>
     </section>
   );

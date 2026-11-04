@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 import numpy as np
 import pandas as pd
 
+from healthtracker.planning.ramp import CHANNELS, ramp_cap
 from healthtracker.rules.base import Action, RuleContext, RuleResult, rule
 from healthtracker.units import fmt_hour
 
@@ -202,6 +203,47 @@ def train_load_ramp(ctx: RuleContext, p: dict) -> RuleResult:
         f"(now {round(this_week)}, up {round(pct)}% on your 3-week average of {round(prior_avg)})",
         "acute_load_7d", "<=", cap, ctx.date + timedelta(days=3))
     return RuleResult(True, 2, details, [action])
+
+
+def _ramp(ctx: RuleContext, p: dict, channel: str) -> tuple[dict, Action | None]:
+    this_col, prev_col, pct_name, allow_name, unit = CHANNELS[channel]
+    y = ctx.yesterday
+    now, prev = y.get(this_col), y.get(prev_col)
+    if now is None or prev is None:
+        return {"channel": channel, "status": "no_data"}, None
+    cap = round(ramp_cap(prev, p[pct_name], p[allow_name]))
+    details = {"channel": channel, "this_week": round(now), "last_week": round(prev), "cap": cap,
+               "max_increase_pct": p[pct_name], "allowance": p[allow_name]}
+    if now <= cap:
+        return details, None
+    label = {"run": "running load", "sprint": "sprint metres", "plyo": "jump contacts"}[channel]
+    return details, Action(
+        f"Hold {label} at or under {cap} {'' if channel == 'run' else unit + ' '}for the rolling week "
+        f"(last 7 days {round(now)}, the week before {round(prev)})".replace("  ", " "),
+        this_col, "<=", cap, ctx.date + timedelta(days=3))
+
+
+@rule("TRAIN_RUN_RAMP", outcome="hrv_z_30d@1")
+def train_run_ramp(ctx: RuleContext, p: dict) -> RuleResult:
+    """D1: week-over-week running load cap (ACWR no longer decides anything)."""
+    details, action = _ramp(ctx, p, "run")
+    if details.get("status") == "no_data":
+        return RuleResult(False, status="no_data", details=details)
+    return RuleResult(bool(action), 2 if action else None, details, [action] if action else [])
+
+
+@rule("TRAIN_CHANNEL_RAMP", outcome="soreness@1")
+def train_channel_ramp(ctx: RuleContext, p: dict) -> RuleResult:
+    """D1/A6: sprint metres and jump contacts each have their own weekly cap."""
+    out, actions = {}, []
+    for ch in ("sprint", "plyo"):
+        details, action = _ramp(ctx, p, ch)
+        out[ch] = details
+        if action:
+            actions.append(action)
+    if all(d.get("status") == "no_data" for d in out.values()):
+        return RuleResult(False, status="no_data", details=out)
+    return RuleResult(bool(actions), 2 if actions else None, out, actions)
 
 
 @rule("TRAIN_MUSCLE_VOLUME", outcome="soreness@1")
