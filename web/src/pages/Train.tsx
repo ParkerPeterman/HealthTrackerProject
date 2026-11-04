@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type IntensityWeek, type Planned, type Workout } from "../api";
+import { api, PHASE_LABEL, type IntensityWeek, type Planned, type SeasonData, type Workout } from "../api";
 import { cap, Chips, Empty, Icon, Scale, sessionLook, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { addDays, dayLabel, isoDate, toLocalInput } from "../dates";
 import { fmtDuration, showDistance, showPace, distUnit } from "../units";
@@ -18,6 +18,7 @@ export default function Train() {
   const { data: workouts, error: workoutsError } = useQuery({
     queryKey: ["workouts"], queryFn: () => api.get<Workout[]>(`/workouts?start=${addDays(today, -21)}&end=${today}`),
   });
+  const { data: season } = useQuery({ queryKey: ["season"], queryFn: () => api.get<SeasonData>("/season") });
   const { data: planned, error: plannedError } = useQuery({
     queryKey: ["planned"], queryFn: () => api.get<Planned[]>(`/planned?start=${today}&end=${addDays(today, 13)}`),
   });
@@ -39,8 +40,9 @@ export default function Train() {
   return (
     <div className="stack">
       <header className="topbar">
-        <div><div className="eyebrow">Last 7 days · next 14</div><h1>Training</h1></div>
+        <div><div className="eyebrow">{season ? `${PHASE_LABEL[season.current]} phase${season.weeks_to_first_game ? ` · ${season.weeks_to_first_game} weeks to the first game` : ""}` : "Last 7 days · next 14"}</div><h1>Training</h1></div>
       </header>
+      {season && <p className="tiny muted" style={{ margin: "0 4px" }}>{season.current_focus}</p>}
 
       <section className="card" aria-label="Last 7 days">
         <div className="grid3">

@@ -26,6 +26,7 @@ from healthtracker.goals.targets import run_goal_check
 from healthtracker.ingest.garmin import pull
 from healthtracker.llm.phrase import phrase
 from healthtracker.pipeline.runner import JobReport, run_step
+from healthtracker.planning.season import ensure_season
 from healthtracker.profile import load_profile
 from healthtracker.recommend.builder import write_recommendation
 from healthtracker.recommend.grading import grade_actions
@@ -48,6 +49,7 @@ def local_today() -> date:
 
 def _features_step(d: date, start: date | None = None) -> int:
     with connect() as conn:
+        ensure_season(conn, local_today())  # F1: defaults until I set my first game
         tz = load_profile(conn).timezone
         n = build_daily_features(conn, d, start)
         since = start or d - timedelta(days=21)

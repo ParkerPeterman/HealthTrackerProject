@@ -514,3 +514,16 @@ export interface IntensityWeek {
   pattern: "pyramidal" | "polarized" | "threshold" | "moderate_heavy" | "too_little";
   n_sessions: number;
 }
+
+// ------------------------------------------------------------------ season (F1)
+export type Phase = "base" | "deload" | "vo2_build" | "preseason" | "in_season" | "transition";
+export interface SeasonData {
+  season: { id: number; first_game: string; season_end: string | null; base_start: string };
+  phases: { phase: Phase; start_date: string; end_date: string | null; source: "default" | "manual"; focus: string }[];
+  current: Phase;
+  current_focus: string;
+  weeks_to_first_game: number;
+}
+export const PHASE_LABEL: Record<Phase, string> = {
+  base: "Base", deload: "Deload", vo2_build: "VO₂ build", preseason: "Pre-season", in_season: "In season", transition: "Transition",
+};

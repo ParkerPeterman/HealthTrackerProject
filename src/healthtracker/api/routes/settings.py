@@ -15,6 +15,16 @@ from healthtracker.api.deps import bad_request, get_conn, local_date, not_found
 from healthtracker.db import execute, fetch_all, fetch_one, insert
 from healthtracker.features.zones import add_zones, current_zones, zone_history
 from healthtracker.jsonutil import to_jsonable
+from healthtracker.planning.season import (
+    FOCUS,
+    PHASES,
+    active_season,
+    ensure_season,
+    monday_on_or_after,
+    phase_on,
+    phases,
+    save_season,
+)
 from healthtracker.profile import DEFAULT_PREFS, load_profile
 
 router = APIRouter(prefix="/api", tags=["settings"])
@@ -151,3 +161,34 @@ def set_zones(body: ZonesIn, conn: psycopg.Connection = Depends(get_conn)) -> di
     """A max HR typed in by hand stays provisional until a field test confirms it."""
     add_zones(conn, body.max_hr, body.source, False, local_date(conn), note=body.note or "entered in settings")
     return get_zones(conn)
+
+
+# ------------------------------------------------------------------ season (F1)
+class SeasonIn(BaseModel):
+    first_game: date
+    season_end: date | None = None
+    base_start: date | None = None
+    overrides: dict[str, tuple[date, date | None]] | None = None   # phase -> (start, end) set by hand
+
+
+@router.get("/season")
+def get_season(conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    today = local_date(conn)
+    s = ensure_season(conn, today)
+    rows = phases(conn)
+    current = phase_on(rows, today)
+    return to_jsonable({"season": s, "phases": [{**r, "focus": FOCUS[r["phase"]]} for r in rows], "current": current,
+                        "current_focus": FOCUS[current], "weeks_to_first_game": max(0, (s["first_game"] - today).days // 7)})
+
+
+@router.put("/season")
+def put_season(body: SeasonIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    current = active_season(conn)
+    base = body.base_start or (current["base_start"] if current else monday_on_or_after(local_date(conn)))
+    if body.first_game <= base:
+        raise bad_request("the first game has to come after base training starts")
+    bad = set(body.overrides or {}) - set(PHASES)
+    if bad:
+        raise bad_request(f"unknown phase {sorted(bad)}")
+    save_season(conn, body.first_game, base, body.season_end, body.overrides)
+    return get_season(conn)

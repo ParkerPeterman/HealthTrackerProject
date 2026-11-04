@@ -1063,6 +1063,20 @@ routes.push(["GET", /^\/intensity$/, () => [
   { week_start: day(-((new Date().getDay() + 6) % 7)), low_min: 150, mid_min: 30, high_min: 18, easy_pct: 75.8, pattern: "pyramidal", n_sessions: 4 },
 ]]);
 
+const seasonView = () => ({
+  season: { id: 1, first_game: "2027-04-01", season_end: null, base_start: "2026-11-09" },
+  phases: [
+    { phase: "base", start_date: "2026-11-09", end_date: "2026-12-20", source: "default", focus: "One VO2 session a week, one speed/jump session, two strength sessions" },
+    { phase: "deload", start_date: "2026-12-21", end_date: "2027-01-03", source: "default", focus: "Reduced volume, flexible days" },
+    { phase: "vo2_build", start_date: "2027-01-04", end_date: "2027-02-07", source: "default", focus: "Two VO2 sessions a week" },
+    { phase: "preseason", start_date: "2027-02-08", end_date: "2027-03-31", source: "default", focus: "Repeated sprints, change of direction, plyometrics" },
+    { phase: "in_season", start_date: "2027-04-01", end_date: null, source: "default", focus: "Games anchor the week" },
+  ],
+  current: "base", current_focus: "One VO2 session a week (3 x 3 building to 4 x 4), one speed/jump session, two strength sessions",
+  weeks_to_first_game: 21,
+});
+routes.push(["GET", /^\/season$/, () => seasonView()], ["PUT", /^\/season$/, () => seasonView()]);
+
 export async function mockRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
   await new Promise((r) => setTimeout(r, 90 + rand() * 120));
   const url = new URL(path, "http://demo");

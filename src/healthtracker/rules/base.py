@@ -66,6 +66,7 @@ class RuleContext:
     history_days: int = 0
     metric_status: dict[str, dict] = field(default_factory=dict)  # A2/A3 rows for the day, by metric
     components: dict[str, dict] = field(default_factory=dict)     # COMP_ switches (shadow until active)
+    phase: str = "base"                                            # season phase (F1)
 
     def fired_within(self, rule_id: str, days: int) -> bool:
         last = self.last_fired.get(rule_id)

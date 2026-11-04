@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type Profile, type Target, type ZonesData } from "../api";
+import { api, PHASE_LABEL, type Profile, type SeasonData, type Target, type ZonesData } from "../api";
 import { Chips, Icon, Stepper, useProfile, useRun } from "../components/ui";
 import { dashboardUrl } from "./More";
 
@@ -73,6 +73,8 @@ export default function Settings() {
       <button className="btn primary" onClick={saveProfile}>Save profile</button>
 
       <ZonesCard />
+
+      <SeasonCard />
 
       <Targets />
 
@@ -187,6 +189,41 @@ function ZonesCard() {
           setMaxHr("");
           qc.invalidateQueries({ queryKey: ["zones"] });
         }, "Max HR saved (provisional)")}>Set</button>
+      </div>
+    </section>
+  );
+}
+
+/** F1: the season's phases, all following from the first game unless set by hand. */
+function SeasonCard() {
+  const run = useRun();
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["season"], queryFn: () => api.get<SeasonData>("/season") });
+  const [first, setFirst] = useState("");
+  const [last, setLast] = useState("");
+  useEffect(() => {
+    if (data) { setFirst(data.season.first_game); setLast(data.season.season_end ?? ""); }
+  }, [data]);
+  if (!data) return null;
+  const changed = first !== data.season.first_game || last !== (data.season.season_end ?? "");
+  return (
+    <section className="card stack">
+      <div className="spread"><h3>Season</h3><span className="badge tint hue-signal">{PHASE_LABEL[data.current]}</span></div>
+      <div className="grid2">
+        <label className="field">First game<input type="date" value={first} onChange={(e) => setFirst(e.target.value)} /></label>
+        <label className="field">Last game (optional)<input type="date" value={last} onChange={(e) => setLast(e.target.value)} /></label>
+      </div>
+      <button className="btn" disabled={!changed || !first} onClick={() => run(async () => {
+        await api.put("/season", { first_game: first, season_end: last || null });
+        ["season", "planned", "today"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      }, "Season saved; the phases follow from it")}>Save season</button>
+      <div className="list">
+        {data.phases.map((ph) => (
+          <div key={ph.phase} className="list-row small">
+            <span className="grow"><b>{PHASE_LABEL[ph.phase]}</b><span className="tiny muted" style={{ display: "block" }}>{ph.focus}</span></span>
+            <span className="tiny muted num" style={{ textAlign: "right" }}>{ph.start_date.slice(5)} – {ph.end_date ? ph.end_date.slice(5) : "…"}</span>
+          </div>
+        ))}
       </div>
     </section>
   );

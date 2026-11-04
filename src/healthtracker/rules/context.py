@@ -12,6 +12,7 @@ from healthtracker.components import component_status
 from healthtracker.db import fetch_all, fetch_df
 from healthtracker.features.daily import estimate_hr_max, impute_rpe
 from healthtracker.features.lifting import HARD_SET_SQL
+from healthtracker.planning.season import phase_for
 from healthtracker.profile import load_profile
 from healthtracker.rules.base import RuleContext
 
@@ -172,6 +173,7 @@ def build_context(conn: psycopg.Connection, d: date) -> RuleContext:
         date=d,
         metric_status=status,
         components=component_status(conn),
+        phase=phase_for(conn, d),
         features=features,
         params=params,
         profile=profile,
