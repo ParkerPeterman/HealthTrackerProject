@@ -95,6 +95,7 @@ export default function Today() {
             <span className="delta muted">of 100</span>
           </div>
         </div>
+        <SevenDay rv={rv} />
       </section>
 
       <LoadCard load7={num(tr.load_7d)} acwr={num(tr.acute_chronic_ratio)} yesterday={num(tr.load_yesterday)}
@@ -210,6 +211,32 @@ function BaselineRing({ name, hue, value, unit, z, invert }: {
       </Ring>
       <span className="name">{name}</span>
       <span className={`delta ${cls}`}>{text}</span>
+    </div>
+  );
+}
+
+const BAND_WORD: Record<string, string> = { below: "below", within: "within", above: "above" };
+
+/** A2: the 7-day averages that matter more than any single night, and where they sit in your normal band. */
+function SevenDay({ rv }: { rv: Record<string, number | string | number[]> }) {
+  const hrv7 = rv.hrv_7d_ms as number | undefined;
+  if (hrv7 == null) return null;
+  const band = rv.hrv_normal_band_ms as number[] | undefined;
+  const status = rv.hrv_7d_status as string | undefined;
+  const rhr7 = rv.resting_hr_7d_bpm as number | undefined;
+  const rhrStatus = rv.resting_hr_7d_status as string | undefined;
+  const learning = rv.baseline_learning_days as number | undefined;
+  const cls = status === "below" ? "warn" : status ? "good" : "muted";
+  return (
+    <div className="tiny" style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+      <span className="muted">7-day HRV </span><b className="num">{hrv7} ms</b>
+      {rv.hrv_cv_7d_pct != null && <span className="muted"> · CV {rv.hrv_cv_7d_pct}%</span>}
+      {rhr7 != null && <><span className="muted"> · resting HR </span><b className="num">{rhr7}</b></>}
+      <div className={cls} style={{ marginTop: 4 }}>
+        {status && band
+          ? `HRV ${BAND_WORD[status]} your normal band (${band[0]}–${band[1]} ms)${rhrStatus === "above" ? "; resting HR above its band" : ""}`
+          : learning != null ? `Still learning your normal: ${learning} of 28 days` : "Single nights are noisy; the 7-day average is the signal"}
+      </div>
     </div>
   );
 }

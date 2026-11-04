@@ -1,8 +1,8 @@
 """Nightly, weekly, and backfill jobs.
 
 Nightly (runs in the morning, after the watch syncs last night's sleep):
-  ingest -> core -> daily_features -> grade earlier actions -> rules/flags
-  -> recommendation + actions -> LLM message
+  ingest -> core -> zones -> daily_features -> baselines
+  -> grade earlier actions -> rules/flags -> recommendation + actions -> LLM message
 Weekly: hypotheses -> insights -> parameter tuning + rule promotion proposals
   -> experiments -> goal check (calorie/protein target proposals) -> next week's plan
 Every load is an upsert on a natural key, so any step can be re-run.
@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 
 from healthtracker.config import get_settings
 from healthtracker.db import connect
+from healthtracker.features.baselines import build_metric_status
 from healthtracker.features.daily import build_daily_features
 from healthtracker.features.lifting import build_lift_progress, build_weekly_muscle_volume
 from healthtracker.features.zones import raise_from_observed
@@ -52,6 +53,11 @@ def _features_step(d: date, start: date | None = None) -> int:
         return n
 
 
+def _baselines_step(d: date, start: date | None = None) -> int:
+    with connect() as conn:
+        return build_metric_status(conn, d, start)
+
+
 def _zones_step() -> int:
     """Raise max HR if a recorded session held a higher, checked value (D3)."""
     with connect() as conn:
@@ -82,6 +88,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
     run_step("nightly", "core", transform, report)
     run_step("nightly", "zones", _zones_step, report)
     run_step("nightly", "daily_features", lambda: _features_step(d), report)
+    run_step("nightly", "baselines", lambda: _baselines_step(d), report)
 
     def grade() -> int:
         with connect() as conn:
@@ -154,6 +161,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
             return n
 
     run_step("backfill", "daily_features", features, report)
+    run_step("backfill", "baselines", lambda: _baselines_step(end, start - timedelta(days=60)), report)
 
     def days() -> int:
         from healthtracker.planning.weekly import write_week_plan

@@ -33,6 +33,7 @@ FEATURE_COLUMNS = [
     # A4 data quality and context
     "watch_overnight", "sleep_plausible", "is_sick", "is_travel", "tag_alcohol", "tag_stress", "tag_dizzy",
     "tag_dizzy_training", "tag_hamstring", "tag_groin", "tz_offset_min", "tz_change", "dst_week",
+    "ln_hrv", "resp_rate",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -216,7 +217,7 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     sleep = fetch_df(
         conn,
         """SELECT date, sleep_score, total_min AS sleep_total_min, overnight_hrv AS hrv,
-                  resting_hr AS sleep_rhr, tz_offset_min,
+                  resting_hr AS sleep_rhr, tz_offset_min, avg_resp_rate AS resp_rate,
                   round(extract(epoch FROM (
                       coalesce((sleep_start AT TIME ZONE 'UTC') + make_interval(mins => tz_offset_min),
                                sleep_start AT TIME ZONE %(tz)s)
@@ -224,7 +225,9 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
            FROM core.sleep""",
         {"tz": tz},
     )
-    join(sleep, ["sleep_score", "sleep_total_min", "hrv", "sleep_rhr", "sleep_midpoint_min", "tz_offset_min"])
+    join(sleep, ["sleep_score", "sleep_total_min", "hrv", "sleep_rhr", "sleep_midpoint_min", "tz_offset_min",
+                 "resp_rate"])
+    df["ln_hrv"] = np.log(df["hrv"].astype(float).where(df["hrv"] > 0)).round(3)
 
     well = fetch_df(conn, """SELECT date, wear_minutes, resting_hr AS day_rhr, avg_stress,
                                     body_battery_low, vo2max FROM core.daily_wellness""")

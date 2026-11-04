@@ -8,6 +8,7 @@ from datetime import date, timedelta
 import pandas as pd
 import psycopg
 
+from healthtracker.components import component_status
 from healthtracker.db import fetch_all, fetch_df
 from healthtracker.features.daily import estimate_hr_max, impute_rpe
 from healthtracker.features.lifting import HARD_SET_SQL
@@ -165,8 +166,12 @@ def build_context(conn: psycopg.Connection, d: date) -> RuleContext:
     wake_hours = sorted(float(w["h"]) for w in wake if w["h"] is not None)
     typical_wake = wake_hours[len(wake_hours) // 2] if wake_hours else None
 
+    status = {r["metric"]: r for r in fetch_all(conn, "SELECT * FROM analytics.metric_status WHERE date = %s", (d,))}
+
     return RuleContext(
         date=d,
+        metric_status=status,
+        components=component_status(conn),
         features=features,
         params=params,
         profile=profile,

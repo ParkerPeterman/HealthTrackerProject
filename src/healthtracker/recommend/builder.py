@@ -6,10 +6,12 @@ way, so a rule proves itself before it is ever shown.
 
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 
 import psycopg
 
+from healthtracker.components import is_live
 from healthtracker.db import execute, fetch_all, insert, upsert
 from healthtracker.jsonutil import to_jsonable
 from healthtracker.rules.base import RuleContext
@@ -32,6 +34,29 @@ def _hm(minutes) -> str | None:
     return f"{h}h{m:02d}"
 
 
+def seven_day_recovery(ctx: RuleContext) -> dict:
+    """A2: 7-day HRV and resting HR, and (once COMP_HRV_BANDS is on) where they sit in their bands."""
+    hrv, rhr = ctx.metric_status.get("ln_hrv") or {}, ctx.metric_status.get("resting_hr") or {}
+    out: dict = {}
+    if hrv.get("acute") is not None:
+        out["hrv_7d_ms"] = round(math.exp(hrv["acute"]))
+        if hrv.get("cv_7d") is not None:
+            out["hrv_cv_7d_pct"] = round(float(hrv["cv_7d"]), 1)
+    if rhr.get("acute") is not None:
+        out["resting_hr_7d_bpm"] = round(float(rhr["acute"]))
+    if not hrv:
+        return out
+    if is_live(ctx.components, "COMP_HRV_BANDS", ctx.history_days) and hrv.get("status"):
+        out["hrv_7d_status"] = hrv["status"]
+        out["hrv_normal_band_ms"] = [round(math.exp(hrv["band_lo"])), round(math.exp(hrv["band_hi"]))]
+        if rhr.get("status"):
+            out["resting_hr_7d_status"] = rhr["status"]
+            out["resting_hr_normal_band_bpm"] = [round(float(rhr["band_lo"])), round(float(rhr["band_hi"]))]
+    elif (hrv.get("maturity") or 0) < 1:
+        out["baseline_learning_days"] = int(hrv.get("base_n") or 0)
+    return out
+
+
 def build_status(ctx: RuleContext) -> dict:
     """Today's numbers in display units, as the LLM and dashboard see them."""
     d = Display(ctx.profile.display_units)
@@ -45,6 +70,7 @@ def build_status(ctx: RuleContext) -> dict:
             "resting_hr_vs_baseline_sd": _r(t.get("rhr_z_30d"), 1),
             "sleep_last_night": _hm(t.get("sleep_total_min")),
             "sleep_score": _r(t.get("sleep_score")),
+            **seven_day_recovery(ctx),
         },
         "training": {
             "load_yesterday": _r(y.get("session_load")),

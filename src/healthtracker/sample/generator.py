@@ -11,6 +11,8 @@ Planted effects, so the weekly stats job has something true to find:
   * an ultimate game             -> HRV -12% next morning, -5% the morning after
   * sleep under 6.5 h            -> energy -1 that day
   * a 5-day illness, 3 days of travel, an ankle sprain with rehab, a bench plateau
+  * a 12-day overreaching block (HRV sliding ~17%, resting HR up ~3.6 bpm, lower energy)
+    and three isolated bad nights (HRV -30% for one night) for the A2 bands
 """
 
 from __future__ import annotations
@@ -101,6 +103,8 @@ class Generator:
         self.conn = conn
         self.seed = seed
         self.rng = np.random.default_rng(seed)
+        self.over_start = int(days * 0.40)                               # A2 overreaching block
+        self.bad_nights = {int(days * f) for f in (0.70, 0.85, 0.95)}  # A2 isolated bad nights
         self.end = end or datetime.now(TZ).date()
         self.start = self.end - timedelta(days=days - 1)
         self.days = days
@@ -245,6 +249,12 @@ class Generator:
                 hrv_mult *= 0.75
                 rhr += 7
                 score -= 10
+            if self.over_start <= i < self.over_start + 12:  # A2: an overreaching block
+                k = i - self.over_start + 1
+                hrv_mult *= 1 - 0.015 * k  # sliding to about -17%
+                rhr += 0.3 * k             # creeping up to about +3.6 bpm
+            if i in self.bad_nights:       # isolated bad nights: one night each, nothing else
+                hrv_mult *= 0.7
             hrv = 62 * hrv_mult
             total = float(np.clip(total, 300, 560))
             score = int(np.clip(score + (total - 450) / 10, 35, 99))
@@ -308,7 +318,7 @@ class Generator:
                     returning=None)
             if rng.random() < 0.85:
                 energy = 3.6 + rng.normal(0, 0.6) - (1 if total < 390 else 0) - (1 if p.sick else 0) \
-                    - sleep_debt / 400
+                    - sleep_debt / 400 - (0.8 if self.over_start + 4 <= i < self.over_start + 12 else 0)
                 sore = 2 + (1.5 if prev and prev.game else 0) + (1 if prev and prev.lift == "lower" else 0) \
                     + rng.normal(0, 0.5)
                 mood = 3.7 + rng.normal(0, 0.6) - (1 if p.sick else 0) + (0.3 if p.game else 0)
