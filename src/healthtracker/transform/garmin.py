@@ -312,15 +312,28 @@ def load_fit(conn: psycopg.Connection, start: date | None, end: date | None) -> 
                 conn, "SELECT id FROM core.workout WHERE source='garmin' AND source_id=%s",
                 (row["source_id"],))["id"]
             n += 1
-        samples = [(wid, datetime.fromisoformat(ts), hr, spd) for ts, hr, spd in p.get("records") or []]
+        per_leg = (sess.get("sport") or "running") == "running"  # FIT running cadence counts one foot
+        samples = [record_row(wid, rec, per_leg) for rec in p.get("records") or []]
         with conn.cursor() as cur:
             cur.executemany(
-                """INSERT INTO core.hr_sample (workout_id, ts, hr, speed_mps) VALUES (%s,%s,%s,%s)
-                   ON CONFLICT (workout_id, ts) DO NOTHING""",
+                """INSERT INTO core.hr_sample (workout_id, ts, hr, speed_mps, cadence_spm, altitude_m)
+                   VALUES (%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (workout_id, ts) DO UPDATE SET hr = EXCLUDED.hr, speed_mps = EXCLUDED.speed_mps,
+                       cadence_spm = coalesce(EXCLUDED.cadence_spm, core.hr_sample.cadence_spm),
+                       altitude_m = coalesce(EXCLUDED.altitude_m, core.hr_sample.altitude_m)""",
                 samples,
             )
         n += len(samples)
     return n
+
+
+def record_row(workout_id: int, rec: list, per_leg_cadence: bool) -> tuple:
+    """A FIT record [ts, hr, speed, cadence?, altitude?] -> an hr_sample row (cadence in steps/min)."""
+    ts, hr, spd = rec[0], rec[1], rec[2]
+    cad = rec[3] if len(rec) > 3 else None
+    alt = rec[4] if len(rec) > 4 else None
+    spm = None if cad is None else int(round(cad * 2 if per_leg_cadence else cad))
+    return (workout_id, datetime.fromisoformat(ts), hr, spd, spm, alt)
 
 
 def resolve_overlaps(conn: psycopg.Connection, since: date | None = None) -> int:

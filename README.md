@@ -169,6 +169,9 @@ weekly view, so a low number can be a data gap.
   *log complete* at the end of the day.
 - **Games (Train tab):** minutes played and effort, since the watch is off during games.
 - **Lifts (Train → Lift):** sets, reps, weight, and reps in reserve. "Last time" is prefilled.
+- **Max HR (Settings → Heart-rate zones):** enter what you know once; it stays *provisional* until the
+  max HR test confirms it (a chest strap confirms outright; a wrist reading must pass the cadence-lock
+  checks). Zones, time in zones, and load for every past session are recomputed when it changes.
 - **Performance tests (Train → Performance tests), about monthly:** max HR (once, then yearly), a 5 km
   time trial every 6-8 weeks, 10 m and 30 m sprints and jumps every 4 weeks. Each test shows how to run it
   and when it's next due; sprint and jump results can be goals.

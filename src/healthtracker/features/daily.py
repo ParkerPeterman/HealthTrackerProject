@@ -16,6 +16,7 @@ import psycopg
 
 from healthtracker.config import get_settings
 from healthtracker.db import fetch_df, fetch_one, upsert
+from healthtracker.features.zones import hr_max
 from healthtracker.profile import Profile, load_profile
 
 FEATURE_COLUMNS = [
@@ -40,19 +41,14 @@ def _hard_rpe_threshold(conn: psycopg.Connection) -> float:
     return float(row["value"]) if row else 7.0
 
 
-def estimate_hr_max(conn: psycopg.Connection, profile: Profile, on: date) -> float:
-    row = fetch_one(conn, """SELECT max(max_hr) AS m FROM core.v_workout
-                             WHERE start_ts > now() - interval '365 days'""")
-    observed = float(row["m"]) if row and row["m"] else None
-    age = profile.age_on(on)
-    formula = 208 - 0.7 * age if age else None  # Tanaka et al. 2001
-    candidates = [v for v in (observed, formula) if v]
-    return max(candidates) if candidates else 190.0
+def estimate_hr_max(conn: psycopg.Connection, profile: Profile | None = None, on: date | None = None) -> float | None:
+    """Max HR from the current zones (D3), else the highest recorded session max. Never an age formula."""
+    return hr_max(conn)
 
 
-def impute_rpe(avg_hr: float | None, hr_max: float) -> float:
+def impute_rpe(avg_hr: float | None, hr_max: float | None) -> float:
     """sRPE needs RPE; when a session has none, estimate it from %HRmax (CR-10 style)."""
-    if avg_hr is None or np.isnan(avg_hr):
+    if avg_hr is None or np.isnan(avg_hr) or not hr_max:
         return 5.0
     pct = avg_hr / hr_max
     for limit, rpe in ((0.60, 2), (0.70, 3), (0.80, 5), (0.87, 7), (0.93, 8)):
@@ -225,10 +221,10 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
 
     # workouts and load
     hard_thr = _hard_rpe_threshold(conn)
-    hr_max = estimate_hr_max(conn, profile, end)
+    hr_max_now = estimate_hr_max(conn)
     w = load_workouts(conn, tz)
     if not w.empty:
-        w["rpe_eff"] = [r if pd.notna(r) else impute_rpe(h, hr_max) for r, h in zip(w.rpe, w.avg_hr, strict=False)]
+        w["rpe_eff"] = [r if pd.notna(r) else impute_rpe(h, hr_max_now) for r, h in zip(w.rpe, w.avg_hr, strict=False)]
         w["load"] = w["session_load"].fillna(w["rpe_eff"] * w["duration_s"] / 60.0)
         w["hard"] = w["is_game"] | (w["rpe_eff"] >= hard_thr)
         w["run_km"] = np.where(w["sport"] == "run", w["distance_m"].fillna(0) / 1000.0, 0.0)
@@ -268,11 +264,11 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     df["next_game_in_days"] = nxt
 
     # running performance: rolling 28-day pace at reference HR
-    ref_hr = float(profile.ref_hr_bpm or round(0.75 * hr_max))
+    ref_hr = float(profile.ref_hr_bpm) if profile.ref_hr_bpm else (round(0.75 * hr_max_now) if hr_max_now else None)
     pts = _run_points(conn, tz)
     paces = []
     for d in df.index:
-        if pts.empty:
+        if pts.empty or ref_hr is None:
             paces.append(np.nan)
             continue
         window = pts[(pts.date > d - pd.Timedelta(days=28)) & (pts.date <= d)]

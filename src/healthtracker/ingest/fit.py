@@ -57,14 +57,29 @@ def parse_fit_bytes(blob: bytes) -> dict:
             elif frame.name == "record":
                 ts = frame.get_value("timestamp") if frame.has_field("timestamp") else None
                 hr = frame.get_value("heart_rate") if frame.has_field("heart_rate") else None
-                speed = None
-                for f in ("enhanced_speed", "speed"):
-                    if frame.has_field(f) and frame.get_value(f) is not None:
-                        speed = frame.get_value(f)
-                        break
+                speed = _first(frame, ("enhanced_speed", "speed"))
+                cadence = _first(frame, ("cadence",))
+                if cadence is not None and frame.has_field("fractional_cadence"):
+                    cadence = float(cadence) + float(frame.get_value("fractional_cadence") or 0)
+                altitude = _first(frame, ("enhanced_altitude", "altitude"))
                 if ts is not None and hr is not None:
-                    records.append([_jsonable(ts), int(hr), None if speed is None else round(float(speed), 3)])
+                    # [ts, hr, speed m/s, cadence (per leg for running, as FIT stores it), altitude m]
+                    records.append([_jsonable(ts), int(hr), _round(speed, 3), _round(cadence, 1), _round(altitude, 1)])
     return {"session": session, "laps": laps, "records": records}
+
+
+def _first(frame: fitdecode.FitDataMessage, names: tuple[str, ...]):
+    for f in names:
+        if frame.has_field(f) and frame.get_value(f) is not None:
+            return frame.get_value(f)
+    return None
+
+
+def _round(v, nd: int) -> float | None:
+    try:
+        return None if v is None else round(float(v), nd)
+    except (TypeError, ValueError):
+        return None
 
 
 def import_fit_files(paths: list[Path]) -> int:

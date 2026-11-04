@@ -17,6 +17,7 @@ from healthtracker.config import get_settings
 from healthtracker.db import connect
 from healthtracker.features.daily import build_daily_features
 from healthtracker.features.lifting import build_lift_progress, build_weekly_muscle_volume
+from healthtracker.features.zones import raise_from_observed
 from healthtracker.goals.targets import run_goal_check
 from healthtracker.ingest.garmin import pull
 from healthtracker.llm.phrase import phrase
@@ -51,6 +52,12 @@ def _features_step(d: date, start: date | None = None) -> int:
         return n
 
 
+def _zones_step() -> int:
+    """Raise max HR if a recorded session held a higher, checked value (D3)."""
+    with connect() as conn:
+        return raise_from_observed(conn, load_profile(conn).timezone)
+
+
 def _rules_and_recommendation(d: date) -> tuple[int, int]:
     with connect() as conn:
         ctx, results = run_rules(conn, d)
@@ -73,6 +80,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
             return load_all(conn, lookback - timedelta(days=1), d)
 
     run_step("nightly", "core", transform, report)
+    run_step("nightly", "zones", _zones_step, report)
     run_step("nightly", "daily_features", lambda: _features_step(d), report)
 
     def grade() -> int:
@@ -135,6 +143,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
             return load_all(conn, None, end)
 
     run_step("backfill", "core", transform, report)
+    run_step("backfill", "zones", _zones_step, report)
 
     def features() -> int:
         with connect() as conn:

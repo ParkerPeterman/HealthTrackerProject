@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type Profile, type Target } from "../api";
+import { api, type Profile, type Target, type ZonesData } from "../api";
 import { Chips, Icon, Stepper, useProfile, useRun } from "../components/ui";
 import { dashboardUrl } from "./More";
 
@@ -72,6 +72,8 @@ export default function Settings() {
       </section>
       <button className="btn primary" onClick={saveProfile}>Save profile</button>
 
+      <ZonesCard />
+
       <Targets />
 
       <section className="card stack">
@@ -130,6 +132,62 @@ function Targets() {
         Load micronutrient defaults (NIH reference intakes)
       </button>
       <p className="tiny muted" style={{ margin: 0 }}>Defaults use your sex and age from the profile. Worth a check with a dietitian if you want sport-specific targets.</p>
+    </section>
+  );
+}
+
+const SOURCE: Record<string, string> = {
+  self_report: "self-reported", field_test: "field test", observed: "seen in a recorded session", manual: "entered by hand",
+};
+
+/** Max HR and the zones built from it (D3). Provisional until the field test confirms it. */
+function ZonesCard() {
+  const run = useRun();
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["zones"], queryFn: () => api.get<ZonesData>("/zones") });
+  const [maxHr, setMaxHr] = useState("");
+  const z = data?.current;
+  return (
+    <section className="card stack">
+      <div className="spread">
+        <h3>Heart-rate zones</h3>
+        {z && <span className={`badge tint ${z.confirmed ? "hue-hrv" : "hue-load"}`}>{z.confirmed ? "confirmed" : "provisional"}</span>}
+      </div>
+      {z ? (
+        <>
+          <div className="small">
+            Max HR <b className="num">{z.max_hr} bpm</b> <span className="muted">({SOURCE[z.source] ?? z.source}, {z.valid_from})</span>
+          </div>
+          <div className="list">
+            {z.five.map((r) => (
+              <div key={r.zone} className="list-row small num">
+                <span style={{ width: 64 }}>Zone {r.zone}</span>
+                <span className="grow muted">{r.pct_max[0]}–{r.pct_max[1]}% max</span>
+                <span>{r.bpm[0]}–{r.bpm[1]}</span>
+                {r.hrr_bpm && <span className="tiny muted" style={{ width: 84, textAlign: "right" }}>HRR {r.hrr_bpm[0]}–{r.hrr_bpm[1]}</span>}
+              </div>
+            ))}
+          </div>
+          <p className="tiny muted" style={{ margin: 0 }}>
+            Easy under {z.three[1].bpm[0]} bpm, hard from {z.three[2].bpm[0]} bpm. 4 × 4 intervals target {z.vo2_target_bpm[0]}–{z.vo2_target_bpm[1]} bpm.
+            HRR uses your resting HR{z.resting_hr ? ` (${z.resting_hr} bpm)` : ""}.
+          </p>
+        </>
+      ) : <p className="small muted" style={{ margin: 0 }}>No max HR yet. Enter what you know; the field test will confirm it.</p>}
+      {!z?.confirmed && (
+        <p className="tiny muted" style={{ margin: 0 }}>
+          A max HR you type in stays provisional until the max HR test (Train → Performance tests) confirms it. Wrist sensors
+          can lock onto running cadence, so a chest strap gives the cleanest test. Every past session is recomputed when it changes.
+        </p>
+      )}
+      <div className="row">
+        <input className="grow" inputMode="numeric" placeholder="Max HR (bpm)" value={maxHr} onChange={(e) => setMaxHr(e.target.value)} />
+        <button className="btn" disabled={!(parseInt(maxHr) >= 120 && parseInt(maxHr) <= 240)} onClick={() => run(async () => {
+          await api.post("/zones", { max_hr: parseInt(maxHr), source: "self_report" });
+          setMaxHr("");
+          qc.invalidateQueries({ queryKey: ["zones"] });
+        }, "Max HR saved (provisional)")}>Set</button>
+      </div>
     </section>
   );
 }

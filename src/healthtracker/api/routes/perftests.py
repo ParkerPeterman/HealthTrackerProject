@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from healthtracker.api.deps import get_conn, local_date, not_found
 from healthtracker.db import execute, fetch_all, fetch_one, insert
+from healthtracker.features.zones import zones_from_test
 from healthtracker.jsonutil import to_jsonable
 from healthtracker.perftests import TESTS, WHEN, protocols, summary
 
@@ -63,7 +64,10 @@ def _row(body: PerfTestIn, conn: psycopg.Connection) -> dict:
 @router.post("/tests")
 def create_test(body: PerfTestIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
     tid = insert(conn, "core.performance_test", _row(body, conn))
-    return to_jsonable(fetch_one(conn, "SELECT * FROM core.performance_test WHERE id = %s", (tid,)))
+    row = fetch_one(conn, "SELECT * FROM core.performance_test WHERE id = %s", (tid,))
+    if body.test == "max_hr":  # a max HR test sets the zones (D3), confirmed if strap or checks allow
+        row["zones"] = zones_from_test(conn, row)
+    return to_jsonable(row)
 
 
 @router.put("/tests/{test_id}")

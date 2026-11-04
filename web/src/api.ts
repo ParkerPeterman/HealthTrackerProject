@@ -453,3 +453,21 @@ export interface TestsData {
   protocols: TestProtocol[];
   when: string;
 }
+
+// ------------------------------------------------------------------ heart-rate zones (D3)
+export type ZoneSource = "self_report" | "field_test" | "observed" | "manual";
+
+export interface ZonesData {
+  current: {
+    version: number;
+    max_hr: number;
+    source: ZoneSource;
+    confirmed: boolean;
+    valid_from: string;
+    resting_hr: number | null;
+    five: { zone: number; pct_max: [number, number]; bpm: [number, number]; hrr_bpm: [number, number] | null }[];
+    three: { zone: number; label: string; bpm: [number | null, number | null] }[];
+    vo2_target_bpm: [number, number];
+  } | null;
+  history: { version: number; max_hr: number; source: ZoneSource; confirmed: boolean; valid_from: string; note: string | null }[];
+}

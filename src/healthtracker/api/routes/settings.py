@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 from zoneinfo import available_timezones
 
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from healthtracker.api.deps import bad_request, get_conn, local_date, not_found
 from healthtracker.db import execute, fetch_all, fetch_one, insert
+from healthtracker.features.zones import add_zones, current_zones, zone_history
 from healthtracker.jsonutil import to_jsonable
 from healthtracker.profile import DEFAULT_PREFS, load_profile
 
@@ -117,3 +118,36 @@ def load_defaults(conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
                 (t["nutrient"],))
         insert(conn, "core.nutrient_target", {**t, "valid_from": today}, returning=None)
     return list_targets(conn)
+
+
+# ------------------------------------------------------------------ heart-rate zones (D3)
+def resting_hr_now(conn: psycopg.Connection, day: date) -> float | None:
+    row = fetch_one(conn, """SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY resting_hr) AS r
+                             FROM analytics.daily_features WHERE date BETWEEN %s AND %s""",
+                    (day - timedelta(days=30), day))
+    return round(float(row["r"])) if row and row["r"] is not None else None
+
+
+@router.get("/zones")
+def get_zones(conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    z = current_zones(conn)
+    rest = resting_hr_now(conn, local_date(conn))
+    current = None
+    if z:
+        current = {"version": z.version, "max_hr": z.max_hr, "source": z.source, "confirmed": z.confirmed,
+                   "valid_from": z.valid_from, **z.table(rest),
+                   "vo2_target_bpm": [z.bpm(90), z.bpm(95)]}  # 4 x 4 intervals at 90-95% of max HR
+    return to_jsonable({"current": current, "history": zone_history(conn)})
+
+
+class ZonesIn(BaseModel):
+    max_hr: int = Field(ge=120, le=240)
+    source: Literal["self_report", "manual"] = "self_report"
+    note: str | None = None
+
+
+@router.post("/zones")
+def set_zones(body: ZonesIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """A max HR typed in by hand stays provisional until a field test confirms it."""
+    add_zones(conn, body.max_hr, body.source, False, local_date(conn), note=body.note or "entered in settings")
+    return get_zones(conn)

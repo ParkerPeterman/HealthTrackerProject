@@ -7,7 +7,7 @@ import {
   ApiError, type Action, type Exercise, type Experiment, type Food, type FoodEntry, type Hypothesis, type Injury,
   type Journal, type LiftSet, type Meal, type Planned, type Profile, type Proposals, type Recommendation,
   type Goal, type GoalProgress, type PerfTest, type Rule, type SavedMeal, type Target, type TargetProposal, type TestKey,
-  type TestProtocol, type TestsData, type Workout,
+  type TestProtocol, type TestsData, type Workout, type ZonesData,
 } from "../api";
 import { addDays, isoDate, parseIso } from "../dates";
 
@@ -999,6 +999,38 @@ routes.push(
     return t;
   }],
   ["DELETE", /^\/tests\/(\d+)$/, (m) => remove(perfTests, m[1])],
+);
+
+// ------------------------------------------------------------------ heart-rate zones (D3)
+const zoneRows: ZonesData["history"] = [
+  { version: 2, max_hr: 197, source: "field_test", confirmed: true, valid_from: day(-26), note: "max HR test with a chest strap" },
+  { version: 1, max_hr: 205, source: "self_report", confirmed: false, valid_from: day(-60), note: "entered in settings" },
+];
+function zonesView(): ZonesData {
+  const z = zoneRows[0];
+  const rest = 48;
+  const pct = [50, 60, 70, 80, 90, 100];
+  const bpm = (p: number) => Math.round((z.max_hr * p) / 100);
+  const hrr = (p: number) => Math.round(rest + ((z.max_hr - rest) * p) / 100);
+  return {
+    current: {
+      ...z, resting_hr: rest,
+      five: [1, 2, 3, 4, 5].map((k) => ({ zone: k, pct_max: [pct[k - 1], pct[k]] as [number, number],
+        bpm: [bpm(pct[k - 1]), bpm(pct[k])] as [number, number], hrr_bpm: [hrr(pct[k - 1]), hrr(pct[k])] as [number, number] })),
+      three: [{ zone: 1, label: "easy", bpm: [null, bpm(80) - 1] }, { zone: 2, label: "moderate", bpm: [bpm(80), bpm(88) - 1] },
+        { zone: 3, label: "hard", bpm: [bpm(88), null] }],
+      vo2_target_bpm: [bpm(90), bpm(95)],
+    },
+    history: zoneRows,
+  };
+}
+routes.push(
+  ["GET", /^\/zones$/, () => zonesView()],
+  ["POST", /^\/zones$/, (_m, _q, b) => {
+    zoneRows.unshift({ version: zoneRows[0].version + 1, max_hr: b.max_hr, source: b.source ?? "self_report", confirmed: false,
+      valid_from: TODAY, note: "entered in settings" });
+    return zonesView();
+  }],
 );
 
 export async function mockRequest<T>(method: string, path: string, body?: unknown): Promise<T> {

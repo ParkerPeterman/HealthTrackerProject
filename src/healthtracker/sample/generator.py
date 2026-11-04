@@ -24,6 +24,7 @@ import numpy as np
 import psycopg
 
 from healthtracker.db import execute, fetch_all, insert, upsert
+from healthtracker.features.zones import add_zones, zones_from_test
 from healthtracker.ingest.raw import store_raw
 
 TZ = ZoneInfo("America/Chicago")
@@ -369,10 +370,13 @@ class Generator:
         rng = np.random.default_rng(self.seed + 101)
         mondays = [self.start + timedelta(days=i) for i in range(self.days)
                    if (self.start + timedelta(days=i)).weekday() == 0]
+        # D3: a self-reported max HR to start, then the chest-strap test confirms the real one.
+        add_zones(self.conn, 200, "self_report", False, self.start, note="self-reported")
         if len(mondays) > 3:
-            insert(self.conn, "core.performance_test", {
+            tid = insert(self.conn, "core.performance_test", {
                 "date": mondays[3], "test": "max_hr", "value": 194, "unit": "bpm", "chest_strap": True,
-                "method": "chest strap", "conditions": "3 x 3 min uphill, last one all-out"}, returning=None)
+                "method": "chest strap", "conditions": "3 x 3 min uphill, last one all-out"})
+            zones_from_test(self.conn, {"id": tid, "date": mondays[3], "value": 194, "chest_strap": True})
         for k, d in enumerate(mondays[1::4]):
             for test, base, step, unit in (("sprint_10m", 1.92, -0.012, "s"), ("sprint_30m", 4.45, -0.02, "s"),
                                            ("cmj", 46.0, 0.6, "cm"), ("broad_jump", 245.0, 2.0, "cm")):
@@ -411,8 +415,11 @@ class Generator:
             for s in range(0, int(dur), 5):
                 drift = min(1.0, (t + s) / 300)  # HR lags at the start
                 ts = start + timedelta(seconds=t + s)
+                # cadence per leg as FIT stores it, and a gently rolling route (deterministic: no extra draws)
+                cadence = round((168 + (speed - 3) * 8) / 2, 1)
+                altitude = round(180 + 6 * math.sin((t + s) / 240), 1)
                 records.append([ts.astimezone(UTC).isoformat(), int(round(hr * (0.8 + 0.2 * drift) + rng.normal(0, 1.5))),
-                                round(speed + rng.normal(0, 0.08), 3)])
+                                round(speed + rng.normal(0, 0.08), 3), cadence, altitude])
             t += dur
         dist = MILE * len(miles)
         avg_hr = round(sum(lap["averageHR"] * lap["duration"] for lap in laps) / t)
