@@ -416,3 +416,40 @@ export interface GoalPlan {
   projected_date: string | null;
   missing?: string;
 }
+
+// ------------------------------------------------------------------ performance tests (A8)
+export type TestKey = "max_hr" | "time_trial_5k" | "sprint_10m" | "sprint_30m" | "cmj" | "broad_jump";
+
+export interface PerfTest {
+  id: number;
+  date: string;
+  test: TestKey;
+  value: number;
+  unit: "bpm" | "s" | "cm";
+  trials: number[] | null;
+  chest_strap: boolean;
+  method: string | null;
+  conditions: string | null;
+  workout_id: number | null;
+  notes: string | null;
+}
+
+export interface TestProtocol {
+  key: TestKey | "vo2max_garmin";
+  label: string;
+  unit: string;
+  better: "higher" | "lower" | null;
+  every_days: number | null;
+  how: string;
+  best_of: number;
+  min?: number;
+  max?: number;
+  automatic?: boolean;
+}
+
+export interface TestsData {
+  tests: PerfTest[];
+  summary: Record<TestKey, { last: PerfTest | null; best: number | null; count: number; due: string | null; overdue: boolean }>;
+  protocols: TestProtocol[];
+  when: string;
+}

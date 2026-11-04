@@ -5,6 +5,7 @@ import { api, type Planned, type Workout } from "../api";
 import { cap, Chips, Empty, Icon, Scale, sessionLook, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { addDays, dayLabel, isoDate, toLocalInput } from "../dates";
 import { fmtDuration, showDistance, showPace, distUnit } from "../units";
+import { TestsCard } from "./Tests";
 
 export default function Train() {
   const [sheet, setSheet] = useState<null | "game" | "workout" | "plan">(null);
@@ -97,6 +98,8 @@ export default function Train() {
           </div>
         ))}
       </div>
+
+      <TestsCard />
 
       <h3 className="section-title">Recent workouts</h3>
       <div className="list">

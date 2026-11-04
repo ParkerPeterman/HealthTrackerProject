@@ -1,6 +1,6 @@
 // Goal status labels and value formatting, shared by the Goals page and the Today card.
 import type { GoalStatus } from "./api";
-import { distUnit, showWeight, weightUnit, type Units } from "./units";
+import { distUnit, showLength, showWeight, weightUnit, type Units } from "./units";
 
 export const STATUS: Record<GoalStatus, { label: string; hue: string }> = {
   achieved: { label: "achieved", hue: "signal" },
@@ -38,6 +38,8 @@ export function fmtMetric(metric: string | null, v: number | null | undefined, u
     case "sleep_total_min": return `${Math.floor(v / 60)}h${String(Math.round(v % 60)).padStart(2, "0")}`;
     case "protein_g_per_kg": return `${v.toFixed(1)} g/kg`;
     case "alcohol_drinks": return `${v} drinks`;
+    case "sprint_10m_s": case "sprint_30m_s": return `${v.toFixed(2)} s`;
+    case "cmj_cm": case "broad_jump_cm": return showLength(v, units);
     default: return String(v);
   }
 }

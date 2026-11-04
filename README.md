@@ -169,6 +169,9 @@ weekly view, so a low number can be a data gap.
   *log complete* at the end of the day.
 - **Games (Train tab):** minutes played and effort, since the watch is off during games.
 - **Lifts (Train → Lift):** sets, reps, weight, and reps in reserve. "Last time" is prefilled.
+- **Performance tests (Train → Performance tests), about monthly:** max HR (once, then yearly), a 5 km
+  time trial every 6-8 weeks, 10 m and 30 m sprints and jumps every 4 weeks. Each test shows how to run it
+  and when it's next due; sprint and jump results can be goals.
 - **Injuries (Body tab):** a daily pain check-in while an injury is active.
 - **Goals (More → Goals):** set once. A weight goal (lose, gain, or maintain, at a chosen pace)
   sets your calorie and protein targets; the weekly job re-estimates what you burn from your own

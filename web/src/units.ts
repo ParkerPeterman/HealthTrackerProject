@@ -54,3 +54,14 @@ export function round(v: number | null | undefined, digits = 0): string {
   if (v == null || Number.isNaN(v)) return "–";
   return v.toFixed(digits);
 }
+
+const CM_PER_IN = 2.54;
+
+/** Jump distances: inches in imperial, centimetres in metric. */
+export const lengthUnit = (u: Units) => (u === "imperial" ? "in" : "cm");
+export const fromCm = (cm: number, u: Units) => (u === "imperial" ? cm / CM_PER_IN : cm);
+export const toCm = (v: number, u: Units) => (u === "imperial" ? v * CM_PER_IN : v);
+export function showLength(cm: number | null | undefined, u: Units): string {
+  if (cm == null) return "–";
+  return u === "imperial" ? `${(cm / CM_PER_IN).toFixed(1)} in` : `${Math.round(cm)} cm`;
+}

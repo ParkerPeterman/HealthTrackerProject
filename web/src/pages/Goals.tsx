@@ -7,7 +7,7 @@ import {
 import { Bar, Chips, Empty, Icon, Ring, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { dayLabel } from "../dates";
 import { clock, fmtMetric, KM_PER_MI, parseClock, STATUS } from "../goals";
-import { distUnit, fromKg, showWeight, toKg, weightUnit, type Units } from "../units";
+import { distUnit, fromCm, fromKg, lengthUnit, showWeight, toCm, toKg, weightUnit, type Units } from "../units";
 
 const TYPE_LOOK: Record<GoalType, { icon: string; hue: string; label: string }> = {
   body_weight: { icon: "scale", hue: "food", label: "Weight" },
@@ -194,13 +194,15 @@ function GoalCard({ goal, units, onEdit }: { goal: Goal; units: Units; onEdit: (
 }
 
 // ------------------------------------------------------------------ create / edit
-const PERF = ["run_5k_min", "e1rm_kg", "pace_at_ref_hr_s_km", "vo2max"] as const;
+const PERF = ["run_5k_min", "e1rm_kg", "pace_at_ref_hr_s_km", "vo2max", "sprint_10m_s", "sprint_30m_s", "cmj_cm",
+  "broad_jump_cm"] as const;
 const HEALTH = ["resting_hr", "hrv", "vo2max"] as const;
 const HABITS = ["sleep_total_min", "protein_g_per_kg", "food_log_complete", "training_day", "alcohol_drinks"] as const;
 const METRIC_LABEL: Record<string, string> = {
   run_5k_min: "5K time", e1rm_kg: "Lift 1RM", pace_at_ref_hr_s_km: "Easy pace", vo2max: "VO₂ max",
   resting_hr: "Resting HR", hrv: "HRV", sleep_total_min: "Sleep", protein_g_per_kg: "Protein",
   food_log_complete: "Food log", training_day: "Train", alcohol_drinks: "Alcohol",
+  sprint_10m_s: "10 m sprint", sprint_30m_s: "30 m sprint", cmj_cm: "Vertical jump", broad_jump_cm: "Broad jump",
 };
 const HABIT_DEFAULT: Record<string, number> = { sleep_total_min: 7.5, protein_g_per_kg: 1.6, alcohol_drinks: 2 };
 const PACES: Record<Units, { lose: number[]; gain: number[] }> = {
@@ -210,7 +212,7 @@ const PACES: Record<Units, { lose: number[]; gain: number[] }> = {
 
 /** Names in the generated formats (see autoDesc). Old ones that no longer match their goal are
  *  regenerated rather than kept as if the user had typed them. */
-const GENERATED_NAME = /^(Lose to|Gain to|Hold) [\d.]+ (lb|kg)$|^(5K in|Resting HR|HRV|VO₂ max) |^Sleep [\d.]+ h, \d nights a week$|g\/kg protein, \d|^Complete food log, \d|^Train \d (day|days) a week$|drinks or fewer, \d| at reference HR$| 1RM$/;
+const GENERATED_NAME = /^(Lose to|Gain to|Hold) [\d.]+ (lb|kg)$|^(5K in|Resting HR|HRV|VO₂ max) |^Sleep [\d.]+ h, \d nights a week$|g\/kg protein, \d|^Complete food log, \d|^Train \d (day|days) a week$|drinks or fewer, \d| at reference HR$| 1RM$|^(10 m|30 m) sprint in |^(Vertical|Broad) jump /;
 
 /** Stored metric value → what the user types in the target field. */
 function toInput(metric: string, v: number | null, units: Units): string {
@@ -218,6 +220,8 @@ function toInput(metric: string, v: number | null, units: Units): string {
   if (metric === "run_5k_min") return clock(v);
   if (metric === "pace_at_ref_hr_s_km") return clock((units === "imperial" ? v * KM_PER_MI : v) / 60);
   if (metric === "e1rm_kg") return String(Math.round(fromKg(v, units)));
+  if (metric === "sprint_10m_s" || metric === "sprint_30m_s") return v.toFixed(2);
+  if (metric === "cmj_cm" || metric === "broad_jump_cm") return String(Math.round(fromCm(v, units) * 10) / 10);
   return String(Math.round(v * 10) / 10);
 }
 
@@ -230,6 +234,7 @@ function fromInput(metric: string, txt: string, units: Units): number | null {
   }
   const n = parseFloat(txt);
   if (!Number.isFinite(n)) return null;
+  if (metric === "cmj_cm" || metric === "broad_jump_cm") return toCm(n, units);
   return metric === "e1rm_kg" ? toKg(n, units) : n;
 }
 
@@ -311,6 +316,8 @@ function GoalSheet({ goal, onClose }: { goal?: Goal; onClose: () => void }) {
     return {
       run_5k_min: `5K in ${t}`, e1rm_kg: `${lift?.name ?? "Lift"} ${t} 1RM`, pace_at_ref_hr_s_km: `${t} at reference HR`,
       vo2max: `VO₂ max ${t}`, resting_hr: `Resting HR ${t}`, hrv: `HRV ${t}`,
+      sprint_10m_s: `10 m sprint in ${t}`, sprint_30m_s: `30 m sprint in ${t}`, cmj_cm: `Vertical jump ${t}`,
+      broad_jump_cm: `Broad jump ${t}`,
     }[metric] ?? "Goal";
   }, [type, dir, targetW, units, days, habitVal, metric, levelTarget, lift]);
 
@@ -404,7 +411,8 @@ function GoalSheet({ goal, onClose }: { goal?: Goal; onClose: () => void }) {
             )}
             <label className="field">
               Target {metric === "run_5k_min" ? "(mm:ss)" : metric === "pace_at_ref_hr_s_km" ? `(mm:ss per ${distUnit(units)})`
-                : metric === "e1rm_kg" ? `(${weightUnit(units)})` : metric === "resting_hr" ? "(bpm)" : metric === "hrv" ? "(ms)" : ""}
+                : metric === "e1rm_kg" ? `(${weightUnit(units)})` : metric === "resting_hr" ? "(bpm)" : metric === "hrv" ? "(ms)"
+                : metric.startsWith("sprint") ? "(seconds)" : metric === "cmj_cm" || metric === "broad_jump_cm" ? `(${lengthUnit(units)})` : ""}
               <span className="muted" style={{ fontWeight: 400 }}>
                 Now: {metric === "e1rm_kg" ? fmtMetric(metric, lift?.best_e1rm_kg ?? null, units) : fmtMetric(metric, now, units)}
               </span>

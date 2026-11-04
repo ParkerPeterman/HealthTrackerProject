@@ -98,6 +98,7 @@ class DayPlan:
 class Generator:
     def __init__(self, conn: psycopg.Connection, days: int = 180, end: date | None = None, seed: int = 42):
         self.conn = conn
+        self.seed = seed
         self.rng = np.random.default_rng(seed)
         self.end = end or datetime.now(TZ).date()
         self.start = self.end - timedelta(days=days - 1)
@@ -325,6 +326,7 @@ class Generator:
 
         self._future_games()
         self._injury_followup()
+        self._perf_tests()
         return counts
 
     # ------------------------------------------------------------ pieces
@@ -357,6 +359,33 @@ class Generator:
         if self.injury_id:
             execute(self.conn, "UPDATE core.injury SET status = 'resolved', resolved_date = %s WHERE id = %s",
                     (self.start + timedelta(days=self.sprain_day + 24), self.injury_id))
+
+    def _perf_tests(self) -> None:
+        """A8: a chest-strap max HR test early on, sprints and jumps every 4 weeks, a 5 km trial every 7.
+
+        Uses its own random stream so the main daily simulation (and every effect planted in
+        it) stays exactly as it was.
+        """
+        rng = np.random.default_rng(self.seed + 101)
+        mondays = [self.start + timedelta(days=i) for i in range(self.days)
+                   if (self.start + timedelta(days=i)).weekday() == 0]
+        if len(mondays) > 3:
+            insert(self.conn, "core.performance_test", {
+                "date": mondays[3], "test": "max_hr", "value": 194, "unit": "bpm", "chest_strap": True,
+                "method": "chest strap", "conditions": "3 x 3 min uphill, last one all-out"}, returning=None)
+        for k, d in enumerate(mondays[1::4]):
+            for test, base, step, unit in (("sprint_10m", 1.92, -0.012, "s"), ("sprint_30m", 4.45, -0.02, "s"),
+                                           ("cmj", 46.0, 0.6, "cm"), ("broad_jump", 245.0, 2.0, "cm")):
+                noise = 0.01 if unit == "s" else 1.0
+                trials = [round(base + step * k + float(rng.normal(0, noise * 2)), 2) for _ in range(3)]
+                best = min(trials) if unit == "s" else max(trials)
+                insert(self.conn, "core.performance_test", {
+                    "date": d, "test": test, "value": best, "unit": unit, "trials": trials,
+                    "method": "slow-motion video" if unit == "s" else "jump app"}, returning=None)
+        for k, d in enumerate(mondays[2::7]):
+            insert(self.conn, "core.performance_test", {
+                "date": d + timedelta(days=1), "test": "time_trial_5k", "unit": "s",
+                "value": round(1290 - 25 * k + float(rng.normal(0, 8))), "conditions": "track"}, returning=None)
 
     def _future_games(self) -> None:
         for k in range(1, 22):

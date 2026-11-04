@@ -6,7 +6,8 @@
 import {
   ApiError, type Action, type Exercise, type Experiment, type Food, type FoodEntry, type Hypothesis, type Injury,
   type Journal, type LiftSet, type Meal, type Planned, type Profile, type Proposals, type Recommendation,
-  type Goal, type GoalProgress, type Rule, type SavedMeal, type Target, type TargetProposal, type Workout,
+  type Goal, type GoalProgress, type PerfTest, type Rule, type SavedMeal, type Target, type TargetProposal, type TestKey,
+  type TestProtocol, type TestsData, type Workout,
 } from "../api";
 import { addDays, isoDate, parseIso } from "../dates";
 
@@ -691,6 +692,10 @@ const routes: [string, RegExp, Handler][] = [
       ["food_log_complete", "Complete food log", "day", "higher", "daily", ["habit"], null],
       ["training_day", "Train", "day", "higher", "daily", ["habit"], null],
       ["alcohol_drinks", "Alcohol", "drinks", "lower", "daily", ["habit"], null],
+      ["sprint_10m_s", "10 m sprint", "s", "lower", "level", ["performance"], 1.87],
+      ["sprint_30m_s", "30 m sprint", "s", "lower", "level", ["performance"], 4.38],
+      ["cmj_cm", "Vertical jump", "cm", "higher", "level", ["performance"], 48.5],
+      ["broad_jump_cm", "Broad jump", "cm", "higher", "level", ["performance"], 249],
     ].map(([key, label, unit, better, kind, goal_types, current]) => ({ key, label, unit, better, kind, goal_types, current })),
     lifts: exercises.filter((e) => e.is_main_lift).map((e) => ({ id: e.id, name: e.name, best_e1rm_kg: bestE1rm(e.id) })),
   })],
@@ -936,6 +941,65 @@ const routes: [string, RegExp, Handler][] = [
   ["PUT", /^\/planned\/(\d+)$/, (m, _q, b) => { Object.assign(byId(planned, m[1]), b, { origin: "manual" }); return OK; }],
   ["DELETE", /^\/planned\/(\d+)$/, (m) => remove(planned, m[1])],
 ];
+
+// ------------------------------------------------------------------ performance tests (A8)
+const PROTOCOLS: TestProtocol[] = [
+  { key: "max_hr", label: "Max HR", unit: "bpm", better: null, every_days: 365, best_of: 1,
+    how: "After a warm-up, run 3 × 3 minutes hard uphill, finishing the last one all-out. Use a chest strap if you have one." },
+  { key: "time_trial_5k", label: "5 km time trial", unit: "s", better: "lower", every_days: 49, best_of: 1,
+    how: "5 km on a flat route or track after a warm-up, same route each time." },
+  { key: "sprint_10m", label: "10 m sprint", unit: "s", better: "lower", every_days: 28, best_of: 3,
+    how: "Time it with phone slow-motion video or a partner. Same surface and warm-up each time; best of 3." },
+  { key: "sprint_30m", label: "30 m sprint", unit: "s", better: "lower", every_days: 28, best_of: 3,
+    how: "Time it with phone slow-motion video or a partner. Same surface and warm-up each time; best of 3." },
+  { key: "cmj", label: "Countermovement jump", unit: "cm", better: "higher", every_days: 28, best_of: 3,
+    how: "Jump height from a phone video app (flight time) or a wall vertical reach; best of 3." },
+  { key: "broad_jump", label: "Standing broad jump", unit: "cm", better: "higher", every_days: 28, best_of: 3,
+    how: "Two-foot take-off, stick the landing, measure to the back heel; best of 3." },
+  { key: "vo2max_garmin", label: "VO2 max (Garmin)", unit: "ml/kg/min", better: "higher", every_days: null, best_of: 1, automatic: true,
+    how: "Estimated automatically from outdoor runs; set your confirmed max HR in Garmin Connect." },
+];
+const T = (offset: number, test: TestKey, value: number, unit: PerfTest["unit"], trials: number[] | null = null,
+           extra: Partial<PerfTest> = {}): PerfTest => ({
+  id: newId(), date: day(offset), test, value, unit, trials, chest_strap: false, method: null, conditions: null,
+  workout_id: null, notes: null, ...extra,
+});
+const perfTests: PerfTest[] = [
+  T(-26, "max_hr", 197, "bpm", null, { chest_strap: true, method: "chest strap" }),
+  T(-30, "sprint_10m", 1.9, "s", [1.93, 1.9, 1.92]), T(-30, "sprint_30m", 4.42, "s", [4.45, 4.42, 4.47]),
+  T(-30, "cmj", 47, "cm", [45.5, 47, 46]), T(-30, "broad_jump", 244, "cm", [240, 244, 241]),
+  T(-2, "sprint_10m", 1.87, "s", [1.89, 1.87, 1.88]), T(-2, "sprint_30m", 4.38, "s", [4.4, 4.38, 4.41]),
+  T(-2, "cmj", 48.5, "cm", [48.5, 47, 48]), T(-2, "broad_jump", 249, "cm", [246, 249, 247]),
+  T(-37, "time_trial_5k", 1312, "s", null, { conditions: "track, 9 °C" }),
+];
+function testsView(): TestsData {
+  const summary = {} as TestsData["summary"];
+  for (const p of PROTOCOLS) {
+    if (p.automatic) continue;
+    const key = p.key as TestKey;
+    const mine = perfTests.filter((t) => t.test === key).sort((a, b) => a.date.localeCompare(b.date));
+    const last = mine.at(-1) ?? null;
+    const values = mine.map((t) => t.value);
+    const best = !values.length || !p.better ? null : p.better === "lower" ? Math.min(...values) : Math.max(...values);
+    const due = p.every_days == null ? null : last ? addDays(last.date, p.every_days) : TODAY;
+    summary[key] = { last, best, count: mine.length, due, overdue: due != null && due <= TODAY };
+  }
+  return { tests: [...perfTests].sort((a, b) => b.date.localeCompare(a.date)), summary, protocols: PROTOCOLS,
+    when: "Test when rested, on a Monday or Tuesday, never right after a travel weekend." };
+}
+routes.push(
+  ["GET", /^\/tests$/, () => testsView()],
+  ["POST", /^\/tests$/, (_m, _q, b) => {
+    const p = PROTOCOLS.find((x) => x.key === b.test)!;
+    const trials: number[] | null = b.trials ?? null;
+    const value = trials?.length ? (p.better === "lower" ? Math.min(...trials) : Math.max(...trials)) : b.value;
+    const t = T(0, b.test, value, p.unit as PerfTest["unit"], trials, { date: b.date ?? TODAY, chest_strap: !!b.chest_strap,
+      method: b.method ?? null, notes: b.notes ?? null });
+    perfTests.push(t);
+    return t;
+  }],
+  ["DELETE", /^\/tests\/(\d+)$/, (m) => remove(perfTests, m[1])],
+);
 
 export async function mockRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
   await new Promise((r) => setTimeout(r, 90 + rand() * 120));

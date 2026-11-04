@@ -16,6 +16,12 @@ import psycopg
 
 from healthtracker.db import fetch_all, fetch_one
 from healthtracker.goals.energy import _window
+from healthtracker.perftests import latest
+
+# Goal metrics read straight from logged performance tests (A8): the latest result counts.
+TEST_METRICS = {"sprint_10m_s": "sprint_10m", "sprint_30m_s": "sprint_30m", "cmj_cm": "cmj",
+                "broad_jump_cm": "broad_jump"}
+TEST_WINDOW_DAYS = 120
 
 
 @dataclass(frozen=True)
@@ -34,6 +40,10 @@ METRICS: dict[str, Metric] = {m.key: m for m in [
     Metric("e1rm_kg", "Estimated 1RM", "kg", "higher", "level", ("performance",)),
     Metric("pace_at_ref_hr_s_km", "Pace at reference HR", "s/km", "lower", "level", ("performance",)),
     Metric("vo2max", "VO2 max", "ml/kg/min", "higher", "level", ("performance", "health")),
+    Metric("sprint_10m_s", "10 m sprint", "s", "lower", "level", ("performance",)),
+    Metric("sprint_30m_s", "30 m sprint", "s", "lower", "level", ("performance",)),
+    Metric("cmj_cm", "Vertical jump", "cm", "higher", "level", ("performance",)),
+    Metric("broad_jump_cm", "Broad jump", "cm", "higher", "level", ("performance",)),
     Metric("resting_hr", "Resting HR, 7-day average", "bpm", "lower", "level", ("health",)),
     Metric("hrv", "HRV, 7-day average", "ms", "higher", "level", ("health",)),
     Metric("sleep_total_min", "Sleep", "min", "higher", "daily", ("habit",)),
@@ -89,6 +99,10 @@ def best_5k_minutes(conn: psycopg.Connection, as_of: date, days: int = 60) -> fl
                                  AND id NOT IN (SELECT workout_id FROM core.run_split)""", (since, as_of))
     if whole and whole["s"] is not None:
         best = whole["s"] if best is None else min(best, whole["s"])
+    trial = fetch_one(conn, """SELECT min(value) AS s FROM core.performance_test
+                               WHERE test = 'time_trial_5k' AND date BETWEEN %s AND %s""", (since, as_of))
+    if trial and trial["s"] is not None:  # a logged time trial counts like a run
+        best = trial["s"] if best is None else min(best, trial["s"])
     return None if best is None else best / 60
 
 
@@ -111,6 +125,9 @@ def current_value(conn: psycopg.Connection, features: pd.DataFrame, metric: str,
         return best_e1rm_kg(conn, exercise_id, as_of)
     if metric in ("pace_at_ref_hr_s_km", "vo2max"):
         return _last(features, metric, as_of)
+    if metric in TEST_METRICS:
+        row = latest(conn, TEST_METRICS[metric], as_of, TEST_WINDOW_DAYS)
+        return float(row["value"]) if row else None
     if metric in ("resting_hr", "hrv"):
         return _mean(features, metric, as_of)
     if metric in METRICS and METRICS[metric].kind == "daily":
