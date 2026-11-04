@@ -209,7 +209,15 @@ def parse_activity(item: dict, detail: dict | None = None) -> dict:
         "rpe": rpe,
         "rpe_source": "garmin" if rpe else None,
         "feel": feel,
+        # Start point to 0.1 degree (about 11 km), only for the weather lookup; tracks are never kept.
+        "start_lat": _round1(item.get("startLatitude")),
+        "start_lon": _round1(item.get("startLongitude")),
     }
+
+
+def _round1(v: Any) -> float | None:
+    f = _num(v)
+    return None if f is None else round(f, 1)
 
 
 def parse_splits(payload: dict) -> list[dict]:

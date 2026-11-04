@@ -33,6 +33,9 @@ DAILY_ENDPOINTS: dict[str, str] = {
 }
 
 RUN_TYPES = {"running", "treadmill_running", "trail_running", "track_running", "street_running"}
+# Other HR-tracked endurance work: per-second HR gives real time in zones and TRIMP (A5, A6).
+FIT_TYPES = RUN_TYPES | {"cycling", "road_biking", "indoor_cycling", "mountain_biking", "gravel_cycling",
+                         "virtual_ride", "hiit", "cardio_training", "indoor_rowing", "elliptical", "hiking"}
 
 
 class GarminNotLoggedIn(RuntimeError):
@@ -100,7 +103,7 @@ def fetch_days(client, start: date, end: date, pause_s: float = 0.3) -> int:
 
 
 def fetch_activities(client, start: date, end: date, pause_s: float = 0.3) -> int:
-    """Fetch activities in [start, end] plus detail, splits, and (runs) FIT samples."""
+    """Fetch activities in [start, end] plus detail, splits (runs), and FIT samples (endurance work)."""
     s = get_settings()
     activities = _call(client.get_activities_by_date, start.isoformat(), end.isoformat()) or []
     new = 0
@@ -118,11 +121,11 @@ def fetch_activities(client, start: date, end: date, pause_s: float = 0.3) -> in
                 splits = _call(client.get_activity_splits, str(act_id))
                 if splits:
                     new += store_raw(conn, "garmin", "activity_splits", for_date, splits)
-                if s.garmin_fetch_fit:
-                    fit = _download_fit(client, act_id)
-                    if fit:
-                        fit["activityId"] = act_id
-                        new += store_raw(conn, "garmin_fit", "fit_activity", for_date, fit)
+            if type_key in FIT_TYPES and s.garmin_fetch_fit:  # per-second HR, cadence, and altitude
+                fit = _download_fit(client, act_id)
+                if fit:
+                    fit["activityId"] = act_id
+                    new += store_raw(conn, "garmin_fit", "fit_activity", for_date, fit)
         time.sleep(pause_s)
     return new
 

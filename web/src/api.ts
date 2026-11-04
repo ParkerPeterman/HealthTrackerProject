@@ -157,6 +157,24 @@ export interface Workout {
   merged_from?: number[] | null;
   sets?: LiftSet[];
   splits?: { split_no: number; distance_m: number; duration_s: number; avg_hr: number | null }[];
+  features?: SessionFeatures | null;
+}
+
+/** A5: what the analysis made of one session. */
+export interface SessionFeatures {
+  session_type: "easy" | "long" | "tempo" | "intervals" | "vo2" | "speed_jump" | "game" | "lift" | "other";
+  type_source: string;
+  hr_source: "samples" | "summary" | "none";
+  low_min: number | null;
+  mid_min: number | null;
+  high_min: number | null;
+  tid_method: "hr" | "session_rpe" | null;
+  pace_at_ref_hr_s_km: number | null;
+  gap_s_km: number | null;
+  decoupling_pct: number | null;
+  hr_drift_pct: number | null;
+  plyo_contacts: number | null;
+  sprint_m: number | null;
 }
 
 export interface Exercise {

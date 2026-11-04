@@ -65,3 +65,9 @@ export function showLength(cm: number | null | undefined, u: Units): string {
   if (cm == null) return "–";
   return u === "imperial" ? `${(cm / CM_PER_IN).toFixed(1)} in` : `${Math.round(cm)} cm`;
 }
+
+/** Seconds per km -> "m:ss/mi" or "m:ss/km". */
+export function pace_s_per_km(sPerKm: number, u: Units): string {
+  const s = Math.round(u === "imperial" ? (sPerKm * M_PER_MI) / 1000 : sPerKm);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}/${distUnit(u)}`;
+}

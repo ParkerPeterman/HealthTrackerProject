@@ -552,7 +552,19 @@ function foodDay(date: string) {
 }
 
 function workoutView(w: Workout): Workout {
-  return { ...w, n_sets: (w.sets ?? []).filter((s) => !s.is_warmup).length };
+  const min = w.duration_s / 60;
+  const hard = (w.rpe ?? 0) >= 7;
+  const features: Workout["features"] = w.sport === "run" ? {
+    session_type: hard ? "tempo" : min >= 75 ? "long" : "easy", type_source: "hr", hr_source: "samples",
+    low_min: r1(min * (hard ? 0.45 : 0.9)), mid_min: r1(min * (hard ? 0.4 : 0.1)), high_min: r1(min * (hard ? 0.15 : 0)),
+    tid_method: "hr", pace_at_ref_hr_s_km: 331, gap_s_km: hard ? 296 : 334, decoupling_pct: min >= 40 && !hard ? 3.2 : null,
+    hr_drift_pct: min >= 40 && !hard ? 2.6 : null, plyo_contacts: null, sprint_m: null,
+  } : w.is_game ? {
+    session_type: "game", type_source: "logged", hr_source: "none", low_min: 0, mid_min: 0, high_min: r1(min),
+    tid_method: "session_rpe", pace_at_ref_hr_s_km: null, gap_s_km: null, decoupling_pct: null, hr_drift_pct: null,
+    plyo_contacts: null, sprint_m: null,
+  } : null;
+  return { ...w, n_sets: (w.sets ?? []).filter((s) => !s.is_warmup).length, features };
 }
 
 function exerciseList(): Exercise[] {

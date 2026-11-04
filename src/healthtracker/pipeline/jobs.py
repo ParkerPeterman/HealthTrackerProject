@@ -1,7 +1,7 @@
 """Nightly, weekly, and backfill jobs.
 
 Nightly (runs in the morning, after the watch syncs last night's sleep):
-  ingest -> core -> zones -> daily_features -> baselines
+  ingest -> core -> zones -> session features -> daily_features -> baselines
   -> grade earlier actions -> rules/flags -> recommendation + actions -> LLM message
 Weekly: hypotheses -> insights -> parameter tuning + rule promotion proposals
   -> experiments -> goal check (calorie/protein target proposals) -> next week's plan
@@ -18,6 +18,7 @@ from healthtracker.db import connect
 from healthtracker.features.baselines import build_metric_status
 from healthtracker.features.daily import build_daily_features
 from healthtracker.features.lifting import build_lift_progress, build_weekly_muscle_volume
+from healthtracker.features.sessions import build_session_features
 from healthtracker.features.zones import raise_from_observed
 from healthtracker.goals.targets import run_goal_check
 from healthtracker.ingest.garmin import pull
@@ -64,6 +65,12 @@ def _zones_step() -> int:
         return raise_from_observed(conn, load_profile(conn).timezone)
 
 
+def _sessions_step(since: date | None) -> int:
+    """Session features (A5): the window, anything new, and everything after a zones change."""
+    with connect() as conn:
+        return build_session_features(conn, since)
+
+
 def _rules_and_recommendation(d: date) -> tuple[int, int]:
     with connect() as conn:
         ctx, results = run_rules(conn, d)
@@ -87,6 +94,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
 
     run_step("nightly", "core", transform, report)
     run_step("nightly", "zones", _zones_step, report)
+    run_step("nightly", "sessions", lambda: _sessions_step(lookback - timedelta(days=1)), report)
     run_step("nightly", "daily_features", lambda: _features_step(d), report)
     run_step("nightly", "baselines", lambda: _baselines_step(d), report)
 
@@ -151,6 +159,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
 
     run_step("backfill", "core", transform, report)
     run_step("backfill", "zones", _zones_step, report)
+    run_step("backfill", "sessions", lambda: _sessions_step(start - timedelta(days=60)), report)
 
     def features() -> int:
         with connect() as conn:

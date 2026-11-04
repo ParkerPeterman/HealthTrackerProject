@@ -76,6 +76,7 @@ def get_workout(workout_id: int, conn: psycopg.Connection = Depends(get_conn)) -
                                    JOIN core.exercise e ON e.id = s.exercise_id
                                    WHERE s.workout_id = %s ORDER BY s.id""", (w["id"],))
     w["splits"] = fetch_all(conn, "SELECT * FROM core.run_split WHERE workout_id = %s ORDER BY split_no", (w["id"],))
+    w["features"] = fetch_one(conn, "SELECT * FROM analytics.session_features WHERE workout_id = %s", (w["id"],))
     return to_jsonable(w)
 
 

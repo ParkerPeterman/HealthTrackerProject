@@ -1,11 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, type Exercise, type LiftSet, type Workout } from "../api";
+import { api, type Exercise, type LiftSet, type SessionFeatures, type Workout } from "../api";
 import { Chips, Empty, Icon, Scale, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { dayLabel } from "../dates";
 import { groupByMuscle, MUSCLE_ORDER, muscleLabel, muscleSummary } from "../exercises";
-import { distUnit, fmtDuration, fromKg, showDistance, showPace, showWeight, toKg, weightStep, weightUnit } from "../units";
+import { distUnit, fmtDuration, fromKg, pace_s_per_km, showDistance, showPace, showWeight, toKg, weightStep, weightUnit } from "../units";
 
 export default function WorkoutDetail() {
   const { id } = useParams();
@@ -73,6 +73,8 @@ export default function WorkoutDetail() {
         {w.merged_from?.length ? <p className="tiny muted" style={{ margin: 0 }}>Merged with your manual entry (Garmin wins on overlapping sessions).</p> : null}
       </div>
 
+      {w.features && <SessionCard f={w.features} units={units} />}
+
       {w.splits && w.splits.length > 0 && (
         <div className="list">
           <div className="list-head"><span>Splits</span><span>pace · HR</span></div>
@@ -127,6 +129,54 @@ export default function WorkoutDetail() {
                            lastInSession={groups.find(([eid]) => eid === adding.id)?.[1].sets.at(-1)}
                            onClose={() => setAdding(null)} onSaved={refresh} />}
     </div>
+  );
+}
+
+const TYPE_LABEL: Record<SessionFeatures["session_type"], string> = {
+  easy: "Easy", long: "Long", tempo: "Tempo", intervals: "Intervals", vo2: "VO₂ intervals", speed_jump: "Speed & jumps",
+  game: "Game", lift: "Lift", other: "Other",
+};
+
+/** A5: the session as the analysis sees it (type, time by intensity, run quality). */
+function SessionCard({ f, units }: { f: SessionFeatures; units: "imperial" | "metric" }) {
+  const zones = [f.low_min ?? 0, f.mid_min ?? 0, f.high_min ?? 0];
+  const total = zones.reduce((a, b) => a + b, 0);
+  const pace = (v: number | null) => (v == null ? "–" : pace_s_per_km(v, units));
+  return (
+    <section className="card stack" aria-label="Session analysis">
+      <div className="spread">
+        <h3>{TYPE_LABEL[f.session_type]}</h3>
+        <span className="tiny muted">{f.type_source === "logged" ? "as logged" : "from heart rate"}</span>
+      </div>
+      {total > 0 && (
+        <div>
+          <div className="row" style={{ gap: 2, height: 10, borderRadius: 6, overflow: "hidden" }} role="img"
+               aria-label={`Easy ${Math.round(zones[0])} min, moderate ${Math.round(zones[1])} min, hard ${Math.round(zones[2])} min`}>
+            {zones.map((z, i) => z > 0 && (
+              <span key={i} style={{ width: `${(z / total) * 100}%`, height: "100%",
+                                     background: ["var(--hrv)", "var(--load)", "var(--heart)"][i] }} />
+            ))}
+          </div>
+          <div className="spread tiny muted" style={{ marginTop: 6 }}>
+            <span>easy {Math.round(zones[0])} min</span><span>moderate {Math.round(zones[1])}</span><span>hard {Math.round(zones[2])}</span>
+          </div>
+          {f.tid_method === "session_rpe" && <p className="tiny muted" style={{ margin: "4px 0 0" }}>No heart rate for this one, so the whole session counts at its effort level.</p>}
+        </div>
+      )}
+      {(f.pace_at_ref_hr_s_km != null || f.gap_s_km != null || f.decoupling_pct != null) && (
+        <div className="tiles" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+          <div className="tile"><div className="label">Pace at ref HR</div><div className="value num small">{pace(f.pace_at_ref_hr_s_km)}</div></div>
+          <div className="tile"><div className="label">Grade-adjusted</div><div className="value num small">{pace(f.gap_s_km)}</div></div>
+          <div className="tile"><div className="label">Decoupling</div>
+            <div className="value num small">{f.decoupling_pct == null ? "–" : `${f.decoupling_pct.toFixed(1)}%`}</div></div>
+        </div>
+      )}
+      {f.decoupling_pct != null && (
+        <p className="tiny muted" style={{ margin: 0 }}>
+          Decoupling compares pace per heartbeat in the first and second half (warm-up skipped). Under about 5% means good aerobic durability.
+        </p>
+      )}
+    </section>
   );
 }
 
