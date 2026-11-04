@@ -246,6 +246,26 @@ def train_channel_ramp(ctx: RuleContext, p: dict) -> RuleResult:
     return RuleResult(bool(actions), 2 if actions else None, out, actions)
 
 
+@rule("TRAIN_INTENSITY_MIX", outcome="hrv_z_30d@1")
+def train_intensity_mix(ctx: RuleContext, p: dict) -> RuleResult:
+    """D4: the last two weeks are short on easy time and heavy on moderately hard time."""
+    y = ctx.yesterday
+    total, easy, mid = y.get("zone_min_14d"), y.get("easy_pct_14d"), y.get("mid_pct_14d")
+    if total is None or easy is None or total < p["min_minutes"]:
+        return RuleResult(False, status="no_data", details={"zone_min_14d": total})
+    details = {"zone_min_14d": round(total), "easy_pct_14d": easy, "mid_pct_14d": mid,
+               "easy_target_pct": p["easy_target_pct"], "easy_target_hi_pct": p["easy_target_hi_pct"]}
+    if easy >= p["easy_target_pct"] - 5 or mid < p["moderate_flag_pct"]:
+        return RuleResult(False, details=details)
+    if ctx.fired_within("TRAIN_INTENSITY_MIX", 7):
+        return RuleResult(False, details={**details, "suppressed": "fired in the last 7 days"})
+    action = Action(
+        f"Keep easy sessions truly easy (zone 1, conversational) this week: {round(easy)}% of the last two weeks "
+        f"was easy and {round(mid)}% moderately hard; aim for {int(p['easy_target_pct'])}-{int(p['easy_target_hi_pct'])}% easy",
+        "easy_pct_14d", ">=", p["easy_target_pct"], ctx.date + timedelta(days=7))
+    return RuleResult(True, 1, details, [action])
+
+
 @rule("TRAIN_MUSCLE_VOLUME", outcome="soreness@1")
 def train_muscle_volume(ctx: RuleContext, p: dict) -> RuleResult:
     if not ctx.lifted_recently:

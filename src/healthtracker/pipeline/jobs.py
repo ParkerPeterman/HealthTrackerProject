@@ -17,6 +17,7 @@ from healthtracker.config import get_settings
 from healthtracker.db import connect
 from healthtracker.features.baselines import build_metric_status
 from healthtracker.features.daily import build_daily_features
+from healthtracker.features.intensity import build_intensity_weekly
 from healthtracker.features.lifting import build_lift_progress, build_weekly_muscle_volume
 from healthtracker.features.load import build_load
 from healthtracker.features.sessions import build_session_features
@@ -75,7 +76,7 @@ def _sessions_step(since: date | None) -> int:
 def _load_step(d: date) -> int:
     """One internal load scale and the daily channels (A6)."""
     with connect() as conn:
-        return build_load(conn, d)
+        return build_load(conn, d) + build_intensity_weekly(conn)
 
 
 def _rules_and_recommendation(d: date) -> tuple[int, int]:

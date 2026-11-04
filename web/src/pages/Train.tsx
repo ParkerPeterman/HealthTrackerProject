@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type Planned, type Workout } from "../api";
+import { api, type IntensityWeek, type Planned, type Workout } from "../api";
 import { cap, Chips, Empty, Icon, Scale, sessionLook, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { addDays, dayLabel, isoDate, toLocalInput } from "../dates";
 import { fmtDuration, showDistance, showPace, distUnit } from "../units";
@@ -48,6 +48,7 @@ export default function Train() {
           <WeekStat label="Time" value={!workouts ? "–" : weekMin >= 60 ? `${Math.floor(weekMin / 60)}h ${String(Math.round(weekMin % 60)).padStart(2, "0")}` : `${Math.round(weekMin)}m`} />
           <WeekStat label="Load" value={workouts ? Math.round(weekLoad).toLocaleString() : "–"} />
         </div>
+        <IntensityBar />
       </section>
 
       <div className="action-grid">
@@ -136,6 +137,32 @@ export default function Train() {
       {(sheet === "plan" || editPlan) && (
         <PlanSheet planned={editPlan ?? undefined} onClose={() => { setSheet(null); setEditPlan(null); }} />
       )}
+    </div>
+  );
+}
+
+const PATTERN: Record<IntensityWeek["pattern"], string> = {
+  pyramidal: "pyramidal", polarized: "polarized", threshold: "mostly moderate", moderate_heavy: "too much moderately hard",
+  too_little: "too little to judge",
+};
+
+/** D4: this week's easy / moderate / hard minutes. */
+function IntensityBar() {
+  const { data } = useQuery({ queryKey: ["intensity"], queryFn: () => api.get<IntensityWeek[]>("/intensity?weeks=2") });
+  const w = data?.at(-1);
+  if (!w) return null;
+  const total = w.low_min + w.mid_min + w.high_min;
+  if (!total) return null;
+  const parts: [number, string][] = [[w.low_min, "var(--hrv)"], [w.mid_min, "var(--load)"], [w.high_min, "var(--heart)"]];
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div className="row" style={{ gap: 2, height: 8, borderRadius: 6, overflow: "hidden" }} role="img"
+           aria-label={`This week: ${Math.round(w.low_min)} easy, ${Math.round(w.mid_min)} moderate, ${Math.round(w.high_min)} hard minutes`}>
+        {parts.map(([m, c], i) => m > 0 && <span key={i} style={{ width: `${(m / total) * 100}%`, height: "100%", background: c }} />)}
+      </div>
+      <div className="tiny muted" style={{ marginTop: 6 }}>
+        Week of {w.week_start.slice(5)}: {w.easy_pct ?? "–"}% easy · {PATTERN[w.pattern]} (aim 75–80% easy)
+      </div>
     </div>
   );
 }

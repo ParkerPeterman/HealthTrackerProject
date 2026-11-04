@@ -295,3 +295,10 @@ def update_planned(planned_id: int, body: PlannedIn, conn: psycopg.Connection = 
 def delete_planned(planned_id: int, conn: psycopg.Connection = Depends(get_conn)) -> dict:
     execute(conn, "DELETE FROM core.planned_session WHERE id = %s", (planned_id,))
     return {"ok": True}
+
+
+@router.get("/intensity")
+def intensity(weeks: int = 8, conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+    """D4: weekly easy / moderate / hard minutes, newest last."""
+    rows = fetch_all(conn, "SELECT * FROM analytics.intensity_weekly ORDER BY week_start DESC LIMIT %s", (weeks,))
+    return to_jsonable(rows[::-1])

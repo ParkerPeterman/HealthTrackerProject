@@ -66,6 +66,22 @@ with right:
     st.caption(f"Reference HR: {int(ref) if ref and not pd.isna(ref) else 'auto (75% of max)'} bpm · "
                f"VO2 max (Garmin): {f['vo2max'].dropna().iloc[-1] if f['vo2max'].notna().any() else '–'}")
 
+st.subheader("Intensity distribution")
+iw = c.query("""SELECT week_start, low_min, mid_min, high_min, easy_pct, pattern, hr_share, n_sessions
+                FROM analytics.intensity_weekly WHERE week_start >= %s ORDER BY week_start""", (start,))
+if iw.empty:
+    c.empty_state("No endurance sessions in this range.")
+else:
+    fig = go.Figure()
+    for col, name, slot in (("low_min", "easy", 0), ("mid_min", "moderate", 3), ("high_min", "hard", 2)):
+        fig.add_trace(go.Bar(x=pd.to_datetime(iw["week_start"]), y=iw[col], name=name,
+                             marker={"color": pal["series"][slot], "cornerradius": 3},
+                             hovertemplate=f"{name}: %{{y:.0f}} min<extra></extra>"))
+    fig.update_layout(barmode="stack", bargap=0.25)
+    c.show(c.base_layout(fig, "Weekly minutes by intensity (aim: pyramidal, 75-80% easy)", "min"), iw, key="tid")
+    st.caption("Three zones: easy below ~80% of max HR, hard from ~88%. Games and sessions without heart rate count "
+               "whole at their effort. Lifting isn't included.")
+
 st.subheader("Lifting")
 lp = c.query("""SELECT p.date, e.name, p.best_e1rm_kg, p.top_set_kg, p.top_set_reps FROM analytics.lift_progress p
                 JOIN core.exercise e ON e.id = p.exercise_id WHERE p.date >= %s ORDER BY p.date""", (start,))

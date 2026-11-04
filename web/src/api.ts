@@ -503,3 +503,14 @@ export interface DayTags {
   tags: TagCode[];
   available: TagCode[];
 }
+
+// ------------------------------------------------------------------ intensity distribution (D4)
+export interface IntensityWeek {
+  week_start: string;
+  low_min: number;
+  mid_min: number;
+  high_min: number;
+  easy_pct: number | null;
+  pattern: "pyramidal" | "polarized" | "threshold" | "moderate_heavy" | "too_little";
+  n_sessions: number;
+}

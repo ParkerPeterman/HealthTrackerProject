@@ -17,6 +17,7 @@ import psycopg
 
 from healthtracker.config import get_settings
 from healthtracker.db import fetch_df, fetch_one, upsert
+from healthtracker.features.intensity import rolling_shares, session_zones
 from healthtracker.features.zones import hr_max
 from healthtracker.profile import Profile, load_profile
 
@@ -37,6 +38,7 @@ FEATURE_COLUMNS = [
     # D1 decisions: uncoupled EWMAs and week-over-week change per channel
     "acute_ewma", "chronic_ewma", "load_week", "load_week_prev", "load_week_change_pct", "run_load_week",
     "run_load_week_prev", "plyo_week", "plyo_week_prev", "sprint_week", "sprint_week_prev",
+    "zone_min_14d", "easy_pct_14d", "mid_pct_14d",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -277,6 +279,9 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     join(internal, ["load_internal"])
     df["load_internal"] = df["load_internal"].astype(float).fillna(0.0).round(1)
     load_decisions(df, conn)
+    shares = rolling_shares(session_zones(conn), df.index)  # D4
+    for c in shares.columns:
+        df[c] = shares[c].astype(float)
 
     # planned games ahead
     games = fetch_df(conn, """SELECT date FROM core.planned_session
