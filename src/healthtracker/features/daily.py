@@ -8,7 +8,8 @@ requested window is written, so any day can be rebuilt safely.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -29,7 +30,17 @@ FEATURE_COLUMNS = [
     "caffeine_mg", "last_caffeine_hour", "alcohol_drinks", "mood", "energy", "soreness",
     "injury_active", "max_pain_activity", "hrv_7d_avg", "hrv_30d_avg", "hrv_z_30d",
     "rhr_z_30d", "sleep_score_z_30d", "load_z_28d",
+    # A4 data quality and context
+    "watch_overnight", "sleep_plausible", "is_sick", "is_travel", "tag_alcohol", "tag_stress", "tag_dizzy",
+    "tag_dizzy_training", "tag_hamstring", "tag_groin", "tz_offset_min", "tz_change", "dst_week",
 ]
+
+# One-tap tags (behavior_event codes) -> daily flag columns.
+TAG_FLAGS = {"is_sick": {"sick"}, "is_travel": {"travel"}, "tag_dizzy": {"dizzy", "dizzy_training"},
+             "tag_dizzy_training": {"dizzy_training"}, "tag_hamstring": {"hamstring_tight"},
+             "tag_groin": {"groin_tweak"}}
+# Plausible overnight values; anything outside is a sensor or sync problem, not physiology.
+PLAUSIBLE = {"sleep_total_min": (180, 840), "hrv": (10, 250), "sleep_rhr": (30, 110)}
 
 GRAMS_ALCOHOL_PER_DRINK = 14.0  # US standard drink
 
@@ -201,17 +212,19 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
         df = df.join(frame, how="left")
 
     # sleep (date = wake-up date)
+    # Sleep timing is on the local clock where I slept (Garmin's local timestamps), else my home zone.
     sleep = fetch_df(
         conn,
         """SELECT date, sleep_score, total_min AS sleep_total_min, overnight_hrv AS hrv,
-                  resting_hr AS sleep_rhr,
+                  resting_hr AS sleep_rhr, tz_offset_min,
                   round(extract(epoch FROM (
-                      (sleep_start AT TIME ZONE %(tz)s)
+                      coalesce((sleep_start AT TIME ZONE 'UTC') + make_interval(mins => tz_offset_min),
+                               sleep_start AT TIME ZONE %(tz)s)
                       + ((sleep_end - sleep_start) / 2) - date::timestamp)) / 60) AS sleep_midpoint_min
            FROM core.sleep""",
         {"tz": tz},
     )
-    join(sleep, ["sleep_score", "sleep_total_min", "hrv", "sleep_rhr", "sleep_midpoint_min"])
+    join(sleep, ["sleep_score", "sleep_total_min", "hrv", "sleep_rhr", "sleep_midpoint_min", "tz_offset_min"])
 
     well = fetch_df(conn, """SELECT date, wear_minutes, resting_hr AS day_rhr, avg_stress,
                                     body_battery_low, vo2max FROM core.daily_wellness""")
@@ -312,8 +325,10 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     wt = df["weight_kg_smoothed"].fillna(df["weight_kg"])
     df["protein_g_per_kg"] = (df["protein_g"] / wt).round(2)
 
-    journal = fetch_df(conn, "SELECT date, mood, energy, soreness FROM core.journal")
-    join(journal, ["mood", "energy", "soreness"])
+    journal = fetch_df(conn, "SELECT date, mood, energy, soreness, stress AS journal_stress FROM core.journal")
+    join(journal, ["mood", "energy", "soreness", "journal_stress"])
+
+    context_flags(df, conn, tz)
 
     # exclusions and injuries
     excl = fetch_df(
@@ -363,6 +378,54 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     return out
 
 
+def _home_offsets(index: pd.DatetimeIndex, tz: str) -> pd.Series:
+    """Home zone's UTC offset (minutes) at 23:00 the evening before each wake date."""
+    zone = ZoneInfo(tz)
+    return pd.Series([zone.utcoffset(datetime.combine(d.date() - timedelta(days=1), time(23))).total_seconds() / 60
+                      for d in index], index=index)
+
+
+def dst_weeks(index: pd.DatetimeIndex, tz: str) -> pd.Series:
+    """True for every day of a Monday-Sunday week in which the home zone changes its UTC offset."""
+    zone = ZoneInfo(tz)
+    weeks: dict[date, bool] = {}
+    out = []
+    for d in index:
+        monday = d.date() - timedelta(days=d.weekday())
+        if monday not in weeks:
+            offsets = {zone.utcoffset(datetime.combine(monday + timedelta(days=k), time(12))) for k in range(7)}
+            weeks[monday] = len(offsets) > 1
+        out.append(weeks[monday])
+    return pd.Series(out, index=index, dtype=bool)
+
+
+def context_flags(df: pd.DataFrame, conn: psycopg.Connection, tz: str) -> None:
+    """A4: tags, data quality, time zones, and DST weeks, added to `df` in place."""
+    events = fetch_df(conn, """SELECT DISTINCT (ts AT TIME ZONE %(tz)s)::date AS date, type_code
+                               FROM core.behavior_event""", {"tz": tz})
+    if not events.empty:
+        events["date"] = pd.to_datetime(events["date"])
+    for col, codes in TAG_FLAGS.items():
+        days = set(events.loc[events["type_code"].isin(codes), "date"]) if not events.empty else set()
+        df[col] = df.index.isin(list(days))
+    tagged = (set(events.loc[events["type_code"] == "alcohol", "date"]) if not events.empty else set())
+    df["tag_alcohol"] = df.index.isin(list(tagged)) | (df["alcohol_drinks"].fillna(0) > 0)
+    stress_tag = (set(events.loc[events["type_code"] == "high_stress", "date"]) if not events.empty else set())
+    df["tag_stress"] = df.index.isin(list(stress_tag)) | (df["journal_stress"].fillna(0) >= 4)
+
+    df["watch_overnight"] = df["sleep_total_min"].notna() & df["hrv"].notna()
+    ok = pd.Series(True, index=df.index)
+    for col, (lo, hi) in PLAUSIBLE.items():
+        v = df[col].astype(float)
+        ok &= v.isna() | v.between(lo, hi)
+    df["sleep_plausible"] = ok.astype("boolean").where(df["sleep_total_min"].notna(), pd.NA)
+
+    home = _home_offsets(df.index, tz)
+    away = (df["tz_offset_min"].astype(float) - home).abs() >= 30
+    df["tz_change"] = away.fillna(False).astype(bool)
+    df["dst_week"] = dst_weeks(df.index, tz)
+
+
 def build_daily_features(conn: psycopg.Connection, end: date, start: date | None = None) -> int:
     """Recompute features through `end` and upsert days in [start, end]."""
     df = compute_features(conn, end)
@@ -374,7 +437,7 @@ def build_daily_features(conn: psycopg.Connection, end: date, start: date | None
     int_cols = ["wear_minutes", "sleep_score", "sleep_total_min", "sleep_midpoint_min",
                 "resting_hr", "avg_stress", "body_battery_low", "n_workouts", "days_since_game",
                 "days_since_hard", "next_game_in_days", "mood", "energy", "soreness",
-                "max_pain_activity"]
+                "max_pain_activity", "tz_offset_min"]
     rows = []
     for rec in df.to_dict("records"):
         row = {}

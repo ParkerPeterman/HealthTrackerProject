@@ -250,10 +250,14 @@ class Generator:
             score = int(np.clip(score + (total - 450) / 10, 35, 99))
             start_dt = local(d, bed_hour - 24)
             end_dt = start_dt + timedelta(minutes=total + 18)
+            # Away nights (after a travel day) are slept an hour ahead, on Eastern time.
+            away = 60 if prev and prev.travel else 0
+            offset_ms = int(start_dt.utcoffset().total_seconds() * 1000) + away * 60_000
             sleep_payload = {
                 "dailySleepDTO": {
                     "calendarDate": d.isoformat(), "sleepTimeSeconds": int(total * 60),
                     "sleepStartTimestampGMT": ms(start_dt), "sleepEndTimestampGMT": ms(end_dt),
+                    "sleepStartTimestampLocal": ms(start_dt) + offset_ms, "sleepEndTimestampLocal": ms(end_dt) + offset_ms,
                     "deepSleepSeconds": int(total * 60 * 0.18), "remSleepSeconds": int(total * 60 * 0.22),
                     "lightSleepSeconds": int(total * 60 * 0.56), "awakeSleepSeconds": int(18 * 60),
                     "averageSpO2Value": round(95 + rng.normal(0, 0.8), 1),

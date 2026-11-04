@@ -116,6 +116,12 @@ def parse_sleep(payload: dict, for_date: date, hrv_payload: dict | None = None) 
         return None
     hrv_summary = (hrv_payload or {}).get("hrvSummary") or {}
     cal = dto.get("calendarDate")
+    # Garmin's "Local" timestamps are the wall clock written as if it were UTC: the difference
+    # is the device's UTC offset that night.
+    local, gmt = _num(dto.get("sleepStartTimestampLocal")), _num(dto.get("sleepStartTimestampGMT"))
+    offset = int(round((local - gmt) / 60000)) if local is not None and gmt is not None else None
+    if offset is not None and not -14 * 60 <= offset <= 14 * 60:
+        offset = None
     return {
         "date": date.fromisoformat(cal) if cal else for_date,
         "sleep_start": ms_to_ts(dto.get("sleepStartTimestampGMT")),
@@ -131,6 +137,7 @@ def parse_sleep(payload: dict, for_date: date, hrv_payload: dict | None = None) 
         "resting_hr": _int(payload.get("restingHeartRate")),
         "avg_spo2": _num(dto.get("averageSpO2Value")),
         "avg_resp_rate": _num(dto.get("averageRespirationValue")),
+        "tz_offset_min": offset,
         "source": "garmin",
     }
 

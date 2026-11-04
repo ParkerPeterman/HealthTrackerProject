@@ -471,3 +471,11 @@ export interface ZonesData {
   } | null;
   history: { version: number; max_hr: number; source: ZoneSource; confirmed: boolean; valid_from: string; note: string | null }[];
 }
+
+// ------------------------------------------------------------------ one-tap tags (A4)
+export type TagCode = "sick" | "travel" | "alcohol" | "high_stress" | "dizzy" | "dizzy_training" | "hamstring_tight" | "groin_tweak";
+export interface DayTags {
+  date: string;
+  tags: TagCode[];
+  available: TagCode[];
+}

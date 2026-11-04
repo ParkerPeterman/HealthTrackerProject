@@ -48,6 +48,9 @@ UNITS = {"hrv": "ms", "resting_hr": "bpm", "sleep_total_min": "min", "kcal": "kc
 HOUR_COLS = {"last_caffeine_hour", "last_meal_hour"}
 
 
+DEFAULT_EXCLUDES = ("sick", "travel", "injury", "implausible")
+
+
 @dataclass
 class Hypothesis:
     id: int
@@ -55,6 +58,36 @@ class Hypothesis:
     outcome: str
     lag_days: int
     min_n_per_group: int = 20
+    excludes: tuple[str, ...] = DEFAULT_EXCLUDES
+
+
+def _bool(f: pd.DataFrame, col: str) -> pd.Series:
+    return f[col].astype("boolean").fillna(False).astype(bool)
+
+
+def excluded_days(f: pd.DataFrame, excludes: tuple[str, ...] | list[str], exposure_col: str | None = None) -> pd.Series:
+    """Days a hypothesis leaves out (A4). Frames without the A4 flag columns fall back to
+    exclude_from_baseline (sick and travel together)."""
+    bad = pd.Series(False, index=f.index)
+    legacy = "exclude_from_baseline" in f
+    for name in excludes:
+        if name in ("sick", "travel"):
+            col = "is_sick" if name == "sick" else "is_travel"
+            if col in f:
+                bad |= _bool(f, col)
+            elif legacy:
+                bad |= _bool(f, "exclude_from_baseline")
+        elif name == "injury" and "injury_active" in f and exposure_col != "injury_active":
+            bad |= _bool(f, "injury_active")
+        elif name == "implausible" and "sleep_plausible" in f:
+            bad |= f["sleep_plausible"].astype("boolean").eq(False).fillna(False).astype(bool)
+        elif name == "partial" and "is_partial_day" in f:
+            bad |= _bool(f, "is_partial_day")
+        elif name in ("tz_change", "dst_week") and name in f:
+            bad |= _bool(f, name)
+        elif name == "alcohol" and "tag_alcohol" in f and exposure_col != "alcohol_drinks":
+            bad |= _bool(f, "tag_alcohol")
+    return bad
 
 
 @dataclass
@@ -125,9 +158,7 @@ def build_frame(features: pd.DataFrame, h: Hypothesis) -> tuple[pd.DataFrame, li
     df["E"] = exposure_series(f, h.exposure)
     df["Y"] = f[h.outcome].astype(float).shift(-lag)
 
-    bad = f["exclude_from_baseline"].fillna(False).astype(bool)
-    if col != "injury_active":
-        bad = bad | f["injury_active"].fillna(False).astype(bool)
+    bad = excluded_days(f, h.excludes, col)
     df["bad"] = bad | bad.shift(-lag, fill_value=False)
 
     controls = []

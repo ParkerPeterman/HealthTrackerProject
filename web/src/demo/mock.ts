@@ -7,7 +7,7 @@ import {
   ApiError, type Action, type Exercise, type Experiment, type Food, type FoodEntry, type Hypothesis, type Injury,
   type Journal, type LiftSet, type Meal, type Planned, type Profile, type Proposals, type Recommendation,
   type Goal, type GoalProgress, type PerfTest, type Rule, type SavedMeal, type Target, type TargetProposal, type TestKey,
-  type TestProtocol, type TestsData, type Workout, type ZonesData,
+  type TagCode, type TestProtocol, type TestsData, type Workout, type ZonesData,
 } from "../api";
 import { addDays, isoDate, parseIso } from "../dates";
 
@@ -1030,6 +1030,17 @@ routes.push(
     zoneRows.unshift({ version: zoneRows[0].version + 1, max_hr: b.max_hr, source: b.source ?? "self_report", confirmed: false,
       valid_from: TODAY, note: "entered in settings" });
     return zonesView();
+  }],
+);
+
+// ------------------------------------------------------------------ one-tap tags (A4)
+const TAGS: TagCode[] = ["sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak"];
+const dayTags = new Map<string, TagCode[]>([[day(-1), ["alcohol"]]]);
+routes.push(
+  ["GET", /^\/tags\/([\d-]+)$/, (m) => ({ date: m[1], tags: dayTags.get(m[1]) ?? [], available: TAGS })],
+  ["PUT", /^\/tags\/([\d-]+)$/, (m, _q, b) => {
+    dayTags.set(m[1], b.tags);
+    return { date: m[1], tags: b.tags, available: TAGS };
   }],
 );
 

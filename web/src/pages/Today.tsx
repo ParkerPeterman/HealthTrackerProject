@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type FoodDay, type GoalSummary, type Journal, type Planned, type Today as TodayData } from "../api";
+import { api, type DayTags, type FoodDay, type GoalSummary, type Journal, type Planned, type TagCode, type Today as TodayData } from "../api";
 import {
   cap, CoachText, Empty, Gauge, Icon, Ring, ScaleRow, sessionLook, Stars, Stepper, useRun, useUnits,
 } from "../components/ui";
@@ -155,6 +155,7 @@ export default function Today() {
 
       <h3 className="section-title">Check-in</h3>
       <JournalCard date={data.date} journal={data.journal} />
+      <TagsCard date={data.date} />
       <WeightCard weightKg={data.weight?.weight_kg ?? null} units={units} />
       <WaterCard />
 
@@ -389,6 +390,36 @@ function JournalCard({ date, journal }: { date: string; journal: Journal | null 
       ))}
       <input placeholder="Note (optional)" value={j.note ?? ""} onChange={(e) => setJ({ ...j, note: e.target.value || null })} />
       <button className="btn primary" onClick={save}>Save</button>
+    </div>
+  );
+}
+
+const TAG_LABEL: Record<TagCode, string> = {
+  sick: "Sick", travel: "Travel", alcohol: "Drinks", high_stress: "High stress", dizzy: "Dizzy",
+  dizzy_training: "Dizzy in training", hamstring_tight: "Tight hamstring", groin_tweak: "Groin tweak",
+};
+
+/** Optional one-tap tags for the day. Each tap saves; sick and travel days stay out of baselines. */
+function TagsCard({ date }: { date: string }) {
+  const qc = useQueryClient();
+  const run = useRun();
+  const { data } = useQuery({ queryKey: ["tags", date], queryFn: () => api.get<DayTags>(`/tags/${date}`) });
+  if (!data) return null;
+  const toggle = (t: TagCode) => run(async () => {
+    const tags = data.tags.includes(t) ? data.tags.filter((x) => x !== t) : [...data.tags, t];
+    await api.put(`/tags/${date}`, { tags });
+    qc.invalidateQueries({ queryKey: ["tags", date] });
+    qc.invalidateQueries({ queryKey: ["events"] });
+  });
+  return (
+    <div className="card tight stack" style={{ gap: 10 }}>
+      <div className="spread"><span className="small" style={{ fontWeight: 550 }}>Anything to note?</span><span className="tiny muted">optional</span></div>
+      <div className="row wrap" role="group" aria-label="Tags for today">
+        {data.available.map((t) => (
+          <button key={t} type="button" aria-pressed={data.tags.includes(t)} className={`chip${data.tags.includes(t) ? " on" : ""}`}
+                  onClick={() => toggle(t)}>{TAG_LABEL[t]}</button>
+        ))}
+      </div>
     </div>
   );
 }

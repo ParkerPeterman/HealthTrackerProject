@@ -132,7 +132,7 @@ export default function Body() {
           <div key={e.id} className="list-row small">
             <span className={`icon-circle ${EVENT_HUE[e.type_code] ?? ""}`} style={{ width: 34, height: 34 }}><Icon name={EVENT_ICON[e.type_code] ?? "calendar"} size={16} /></span>
             <span className="grow">
-              <span style={{ fontWeight: 550 }}>{cap(e.type_code)}</span>
+              <span style={{ fontWeight: 550 }}>{cap(e.type_code.replaceAll("_", " "))}</span>
               <span className="tiny muted" style={{ display: "block" }}>{[e.value != null ? `${e.value} min` : null, e.note, dayLabel(e.ts.slice(0, 10))].filter(Boolean).join(" · ")}</span>
             </span>
             <button className="btn ghost small danger icon-btn" aria-label="Delete event"
@@ -170,8 +170,14 @@ export default function Body() {
   );
 }
 
-const EVENT_ICON: Record<string, string> = { sick: "alert", travel: "calendar", nap: "moon", sauna: "flame", supplement: "plus" };
-const EVENT_HUE: Record<string, string> = { sick: "hue-heart", travel: "hue-food", nap: "hue-sleep", sauna: "hue-load" };
+const EVENT_ICON: Record<string, string> = {
+  sick: "alert", travel: "calendar", nap: "moon", sauna: "flame", supplement: "plus", alcohol: "drop", high_stress: "pulse",
+  dizzy: "alert", dizzy_training: "alert", hamstring_tight: "bolt", groin_tweak: "bolt",
+};
+const EVENT_HUE: Record<string, string> = {
+  sick: "hue-heart", travel: "hue-food", nap: "hue-sleep", sauna: "hue-load", alcohol: "hue-sleep", high_stress: "hue-load",
+  dizzy: "hue-heart", dizzy_training: "hue-heart", hamstring_tight: "hue-heart", groin_tweak: "hue-heart",
+};
 
 function JournalVal({ k, v, hue }: { k: string; v: number | null; hue: string }) {
   return (

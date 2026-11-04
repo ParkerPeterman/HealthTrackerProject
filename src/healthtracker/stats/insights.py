@@ -8,7 +8,7 @@ import pandas as pd
 import psycopg
 
 from healthtracker.db import execute, fetch_all, fetch_df, insert
-from healthtracker.stats.hypothesis import Hypothesis, finalize, run_test
+from healthtracker.stats.hypothesis import DEFAULT_EXCLUDES, Hypothesis, finalize, run_test
 
 
 def load_features_frame(conn: psycopg.Connection, end: date | None = None) -> pd.DataFrame:
@@ -25,7 +25,8 @@ def run_insights(conn: psycopg.Connection, as_of: date) -> int:
     if features.empty:
         return 0
     rows = fetch_all(conn, "SELECT * FROM analytics.hypothesis WHERE status <> 'retired' ORDER BY id")
-    hyps = {r["id"]: Hypothesis(r["id"], r["exposure"], r["outcome"], r["lag_days"], r["min_n_per_group"])
+    hyps = {r["id"]: Hypothesis(r["id"], r["exposure"], r["outcome"], r["lag_days"], r["min_n_per_group"],
+                                tuple(r.get("excludes") or DEFAULT_EXCLUDES))
             for r in rows}
     results = [run_test(features, h) for h in hyps.values()]
     finalize(results, hyps)

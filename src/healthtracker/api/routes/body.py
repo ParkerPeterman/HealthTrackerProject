@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Annotated, Literal
 
 import psycopg
@@ -213,3 +213,37 @@ def add_event(body: EventIn, conn: psycopg.Connection = Depends(get_conn)) -> di
 def delete_event(event_id: int, conn: psycopg.Connection = Depends(get_conn)) -> dict:
     execute(conn, "DELETE FROM core.behavior_event WHERE id = %s", (event_id,))
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ one-tap tags (A4)
+TAGS = ("sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak")
+TagCode = Literal["sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak"]
+
+
+def _day_tags(conn: psycopg.Connection, day: date, tz: str) -> list[str]:
+    rows = fetch_all(conn, """SELECT DISTINCT type_code FROM core.behavior_event
+                              WHERE (ts AT TIME ZONE %s)::date = %s AND type_code = ANY(%s)""", (tz, day, list(TAGS)))
+    return sorted(r["type_code"] for r in rows)
+
+
+@router.get("/tags/{day}")
+def get_tags(day: date, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    return to_jsonable({"date": day, "tags": _day_tags(conn, day, load_profile(conn).timezone), "available": TAGS})
+
+
+class TagsIn(BaseModel):
+    tags: list[TagCode]
+
+
+@router.put("/tags/{day}")
+def put_tags(day: date, body: TagsIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Set the day's tags: one tap adds or removes one. Stored as behavior events at local noon."""
+    profile = load_profile(conn)
+    have, want = set(_day_tags(conn, day, profile.timezone)), set(body.tags)
+    if have - want:
+        execute(conn, """DELETE FROM core.behavior_event WHERE (ts AT TIME ZONE %s)::date = %s AND type_code = ANY(%s)""",
+                (profile.timezone, day, sorted(have - want)))
+    noon = datetime.combine(day, time(12), profile.tz)
+    for code in sorted(want - have):
+        insert(conn, "core.behavior_event", {"ts": noon, "type_code": code, "note": "tag"}, returning=None)
+    return get_tags(day, conn)
