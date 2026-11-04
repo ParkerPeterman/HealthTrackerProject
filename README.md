@@ -87,9 +87,13 @@ The Garmin password is never stored. Log in once; refresh tokens go to `./secret
 ```bash
 docker compose run --rm -it api healthtracker garmin-login      # asks for email, password, MFA code
 docker compose run --rm api healthtracker nightly               # test it: ingest_garmin should be ok
-docker compose run --rm api healthtracker garmin-backfill --days 120   # only if the watch has history
+docker compose run --rm api healthtracker garmin-backfill --days 45    # everything since the watch was set up
 docker compose run --rm api healthtracker backfill --start 2026-06-01
+docker compose run --rm api healthtracker coverage                      # any day missing sleep, HRV, or resting HR?
 ```
+
+`coverage` lists days without overnight data (watch off or not synced) and which Garmin fields the
+stored payloads actually carry, so nothing downstream relies on a field this watch never sends.
 
 During login, `429 ... rate limited` warnings are normal; the client falls back to another login
 method. It worked if it ends with `Tokens saved`. Tokens last months; if `healthtracker status` shows
@@ -230,7 +234,7 @@ healthtracker demo [--days 180] [--llm-days N]
 healthtracker proposals list | approve param|status ID | reject ...
 healthtracker rules list | set RULE_ID shadow|active|retired
 healthtracker experiment HYPOTHESIS_ID [--start D] [--days 14]
-healthtracker status
+healthtracker status | coverage [--days N]
 ```
 
 Inside Docker, prefix with `docker compose run --rm api`.

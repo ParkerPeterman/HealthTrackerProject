@@ -184,6 +184,21 @@ def status(limit: int = 15) -> None:
                    f"{r['status'] or 'running':7} rows={r['rows_written'] or 0} {err}")
 
 
+@app.command()
+def coverage(days: int = typer.Option(None, help="Only check the last N days (default: since the first watch data)")) -> None:
+    """Check that every day has sleep, HRV, and resting HR, and which Garmin fields are stored."""
+    from healthtracker.ingest.coverage import daily_coverage, field_presence, report
+    from healthtracker.pipeline.jobs import local_today
+
+    last = local_today() - timedelta(days=1)  # today's night may not have synced yet
+    since = last - timedelta(days=days - 1) if days else None
+    with connect() as conn:
+        cov = daily_coverage(conn, last, since)
+        typer.echo(report(cov, field_presence(conn, since)))
+    if not cov.complete:
+        raise typer.Exit(1)
+
+
 @proposals_app.command("list")
 def proposals_list() -> None:
     from healthtracker.goals.targets import pending_target_proposals
