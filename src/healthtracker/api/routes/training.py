@@ -11,7 +11,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from healthtracker.api.deps import bad_request, get_conn, local_date, not_found, now_local
-from healthtracker.db import execute, fetch_all, fetch_one, insert
+from healthtracker.db import execute, fetch_all, fetch_one, insert, upsert
+from healthtracker.features.load import apply_factor, current_factor
+from healthtracker.features.sessions import session_rows
 from healthtracker.jsonutil import to_jsonable
 from healthtracker.profile import load_profile
 
@@ -30,6 +32,8 @@ class WorkoutIn(BaseModel):
     rpe: int | None = Field(None, ge=1, le=10)
     distance_m: float | None = None
     notes: str | None = None
+    plyo_contacts: int | None = Field(None, ge=0, le=2000)
+    sprint_m: float | None = Field(None, ge=0, le=5000)
 
 
 class WorkoutPatch(BaseModel):
@@ -40,6 +44,8 @@ class WorkoutPatch(BaseModel):
     rpe: int | None = Field(None, ge=1, le=10)
     distance_m: float | None = None
     notes: str | None = None
+    plyo_contacts: int | None = Field(None, ge=0, le=2000)   # A6 channels, logged by hand
+    sprint_m: float | None = Field(None, ge=0, le=5000)
 
 
 @router.get("/workouts")
@@ -86,7 +92,8 @@ def create_workout(body: WorkoutIn, conn: psycopg.Connection = Depends(get_conn)
     wid = insert(conn, "core.workout", {
         "source": "manual", "sport": body.sport.lower(), "is_game": body.is_game, "start_ts": start,
         "duration_s": int(body.duration_min * 60), "rpe": body.rpe,
-        "rpe_source": "manual" if body.rpe else None, "distance_m": body.distance_m, "notes": body.notes})
+        "rpe_source": "manual" if body.rpe else None, "distance_m": body.distance_m, "notes": body.notes,
+        "plyo_contacts": body.plyo_contacts, "sprint_m": body.sprint_m})
     if body.is_game:
         d = local_date(conn, start)
         execute(conn, """UPDATE core.planned_session SET status = 'done', linked_workout_id = %s
@@ -100,7 +107,7 @@ def update_workout(workout_id: int, body: WorkoutPatch, conn: psycopg.Connection
     w = _resolve(conn, workout_id)
     d = body.model_dump(exclude_none=True)
     if w["source"] == "garmin":  # device facts stay; my annotations can change
-        d = {k: v for k, v in d.items() if k in ("sport", "is_game", "rpe", "notes")}
+        d = {k: v for k, v in d.items() if k in ("sport", "is_game", "rpe", "notes", "plyo_contacts", "sprint_m")}
         if "rpe" in d:
             d["rpe_source"] = "manual"
     else:
@@ -111,7 +118,16 @@ def update_workout(workout_id: int, body: WorkoutPatch, conn: psycopg.Connection
     if d:
         execute(conn, f"UPDATE core.workout SET {', '.join(f'{k} = %s' for k in d)} WHERE id = %s",
                 (*d.values(), w["id"]))
+        refresh_session(conn, w["id"])
     return get_workout(w["id"], conn)
+
+
+def refresh_session(conn: psycopg.Connection, workout_id: int) -> None:
+    """Edits change the session's type, effort, and channels: rebuild its row now (daily totals follow nightly)."""
+    rows = session_rows(conn, [workout_id])
+    if rows:
+        upsert(conn, "analytics.session_features", rows, conflict=["workout_id"])
+        apply_factor(conn, current_factor(conn), workout_id)
 
 
 @router.delete("/workouts/{workout_id}")

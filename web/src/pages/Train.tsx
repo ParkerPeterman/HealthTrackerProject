@@ -179,7 +179,7 @@ export function GameSheet({ onClose, planned }: { onClose: () => void; planned?:
   );
 }
 
-const SPORTS = ["run", "bike", "strength", "ultimate", "swim", "walk", "other"] as const;
+const SPORTS = ["run", "bike", "strength", "speed", "ultimate", "swim", "walk", "other"] as const;
 
 function WorkoutSheet({ onClose }: { onClose: () => void }) {
   const run = useRun();
@@ -189,14 +189,22 @@ function WorkoutSheet({ onClose }: { onClose: () => void }) {
   const [minutes, setMinutes] = useState(60);
   const [rpe, setRpe] = useState<number | null>(null);
   const [distance, setDistance] = useState("");
+  const [sprintM, setSprintM] = useState("");
+  const [contacts, setContacts] = useState("");
   const [start, setStart] = useState(() => toLocalInput(new Date(Date.now() - 60 * 60_000)));
   const [notes, setNotes] = useState("");
   return (
     <Sheet title="Log a workout" onClose={onClose}>
       <div className="stack">
-        <Chips options={SPORTS} value={sport} onChange={setSport} labels={{ ultimate: "ultimate practice" }} />
+        <Chips options={SPORTS} value={sport} onChange={setSport} labels={{ ultimate: "ultimate practice", speed: "sprints & jumps" }} />
         <label className="field">Minutes<Stepper value={minutes} onChange={setMinutes} step={5} min={5} max={600} label="minutes" /></label>
         <label className="field">Effort (RPE 1-10)<Scale n={10} value={rpe} onChange={setRpe} label="effort" /></label>
+        {sport === "speed" && (
+          <div className="grid2">
+            <label className="field">Sprint metres<input inputMode="numeric" value={sprintM} onChange={(e) => setSprintM(e.target.value)} /></label>
+            <label className="field">Jump contacts<input inputMode="numeric" value={contacts} onChange={(e) => setContacts(e.target.value)} /></label>
+          </div>
+        )}
         {["run", "bike", "swim", "walk"].includes(sport) && (
           <label className="field">Distance ({distUnit(units)})
             <input inputMode="decimal" value={distance} onChange={(e) => setDistance(e.target.value)} />
@@ -209,6 +217,8 @@ function WorkoutSheet({ onClose }: { onClose: () => void }) {
           await api.post("/workouts", {
             sport, duration_min: minutes, rpe, start_ts: new Date(start).toISOString(), notes: notes || null,
             distance_m: Number.isFinite(d) ? (units === "imperial" ? d * 1609.344 : d * 1000) : null,
+            sprint_m: sport === "speed" && sprintM ? Number(sprintM) : null,
+            plyo_contacts: sport === "speed" && contacts ? Number(contacts) : null,
           });
           qc.invalidateQueries();
           onClose();

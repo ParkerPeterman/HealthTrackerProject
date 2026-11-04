@@ -20,7 +20,7 @@ import pandas as pd
 import psycopg
 
 from healthtracker.db import execute, fetch_all, fetch_df, upsert
-from healthtracker.features.daily import pace_at_ref_hr
+from healthtracker.features.daily import impute_rpe, pace_at_ref_hr
 from healthtracker.features.zones import Zones, current_zones
 from healthtracker.profile import load_profile
 
@@ -160,6 +160,29 @@ def grade_adjusted_pace(bins: pd.DataFrame) -> float | None:
     return round(1000.0 / mean, 1) if mean > 0 else None
 
 
+# Banister's TRIMP weighting: men 0.64 e^(1.92x), women 0.86 e^(1.67x), x = fraction of HR reserve.
+TRIMP_COEF = {"female": (0.86, 1.67)}
+TRIMP_DEFAULT = (0.64, 1.92)
+SRPE_ONLY = {"game", "lift", "speed_jump"}  # session-RPE even when HR exists (brief A6)
+
+
+def banister_trimp(hr: np.ndarray, minutes: np.ndarray, resting_hr: float, max_hr: float, sex: str | None) -> float:
+    a, b = TRIMP_COEF.get(sex or "", TRIMP_DEFAULT)
+    x = np.clip((np.asarray(hr, dtype=float) - resting_hr) / max(max_hr - resting_hr, 1.0), 0, 1)
+    return float(np.sum(np.asarray(minutes, dtype=float) * x * a * np.exp(b * x)))
+
+
+def resting_hr_by_date(conn: psycopg.Connection) -> pd.Series:
+    """30-day rolling median of resting HR, for heart-rate reserve on each date."""
+    df = fetch_df(conn, """SELECT coalesce(s.date, w.date) AS date, coalesce(s.resting_hr, w.resting_hr) AS rhr
+                           FROM core.sleep s FULL JOIN core.daily_wellness w ON w.date = s.date ORDER BY 1""")
+    if df.empty:
+        return pd.Series(dtype=float)
+    s = df.dropna().set_index(pd.to_datetime(df.dropna()["date"]))["rhr"].astype(float)
+    s = s[~s.index.duplicated()].asfreq("D")
+    return s.rolling(30, min_periods=3).median().ffill()
+
+
 def _plyo_from_sets(conn: psycopg.Connection) -> dict[int, int]:
     rows = fetch_all(conn, """SELECT s.workout_id, sum(s.reps) AS n FROM core.lift_set s
                               JOIN core.exercise e ON e.id = s.exercise_id
@@ -181,6 +204,7 @@ def session_rows(conn: psycopg.Connection, workout_ids: list[int]) -> list[dict]
     splits = fetch_df(conn, """SELECT workout_id, avg_hr AS hr, distance_m / duration_s AS speed FROM core.run_split
                                WHERE workout_id = ANY(%s) AND distance_m >= 400 AND split_no > 1""", (workout_ids,))
     plyo = _plyo_from_sets(conn)
+    rest = resting_hr_by_date(conn)
     by_workout = dict(tuple(samples.groupby("workout_id"))) if not samples.empty else {}
     rows = []
     for w in workouts:
@@ -188,6 +212,9 @@ def session_rows(conn: psycopg.Connection, workout_ids: list[int]) -> list[dict]
         s = by_workout.get(w["id"])
         has_samples = s is not None and len(s) >= 10
         rpe = float(w["rpe"]) if w["rpe"] is not None else None
+        resting = float(rest.asof(pd.Timestamp(w["date"]))) if not rest.empty and pd.Timestamp(w["date"]) >= rest.index[0] \
+            else 60.0
+        resting = 60.0 if np.isnan(resting) else resting
         row = {"workout_id": w["id"], "date": w["date"], "sport": w["sport"], "duration_min": minutes,
                "distance_m": w["distance_m"], "avg_hr": w["avg_hr"],
                "hr_source": "samples" if has_samples else "summary" if w["avg_hr"] else "none",
@@ -221,6 +248,18 @@ def session_rows(conn: psycopg.Connection, workout_ids: list[int]) -> list[dict]
             row["tid_method"] = "session_rpe"
         else:
             row.update({"low_min": None, "mid_min": None, "high_min": None, "tid_method": None})
+
+        # A6: TRIMP for HR-tracked endurance work, session-RPE for everything (calibrated later).
+        row["srpe"] = round((rpe if rpe is not None else impute_rpe(w["avg_hr"], zones.max_hr if zones else None))
+                            * minutes, 1)
+        row["trimp"] = None
+        if zones is not None and row["session_type"] not in SRPE_ONLY:
+            if has_samples:
+                row["trimp"] = round(banister_trimp(s["hr"].to_numpy(), seconds_per_sample(s["ts"]) / 60, resting,
+                                                    zones.max_hr, profile.sex), 1)
+            elif w["avg_hr"]:
+                row["trimp"] = round(banister_trimp(np.array([w["avg_hr"]]), np.array([minutes]), resting,
+                                                    zones.max_hr, profile.sex), 1)
 
         if w["sport"] == "run":
             if bins is not None and ref_hr:

@@ -153,6 +153,8 @@ export interface Workout {
   feel: number | null;
   session_load: number | null;
   notes: string | null;
+  plyo_contacts?: number | null;
+  sprint_m?: number | null;
   n_sets?: number;
   merged_from?: number[] | null;
   sets?: LiftSet[];
@@ -175,6 +177,10 @@ export interface SessionFeatures {
   hr_drift_pct: number | null;
   plyo_contacts: number | null;
   sprint_m: number | null;
+  trimp?: number | null;
+  srpe?: number | null;
+  internal_load?: number | null;
+  load_method?: "trimp" | "srpe_calibrated" | null;
 }
 
 export interface Exercise {

@@ -33,7 +33,7 @@ FEATURE_COLUMNS = [
     # A4 data quality and context
     "watch_overnight", "sleep_plausible", "is_sick", "is_travel", "tag_alcohol", "tag_stress", "tag_dizzy",
     "tag_dizzy_training", "tag_hamstring", "tag_groin", "tz_offset_min", "tz_change", "dst_week",
-    "ln_hrv", "resp_rate",
+    "ln_hrv", "resp_rate", "load_internal",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -268,6 +268,11 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     enough = days_seen >= 14
     df["acwr"] = (df["acute_load_7d"] / chronic).where(enough & (chronic > 0)).round(2)
     df["run_km_7d"] = df["run_km"].rolling(7, min_periods=1).sum().round(2)
+
+    # A6: the one internal load scale (TRIMP, or session-RPE calibrated to it), from load_daily.
+    internal = fetch_df(conn, "SELECT date, value AS load_internal FROM analytics.load_daily WHERE channel = 'internal'")
+    join(internal, ["load_internal"])
+    df["load_internal"] = df["load_internal"].astype(float).fillna(0.0).round(1)
 
     # planned games ahead
     games = fetch_df(conn, """SELECT date FROM core.planned_session

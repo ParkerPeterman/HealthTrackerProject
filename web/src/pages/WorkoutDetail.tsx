@@ -54,7 +54,8 @@ export default function WorkoutDetail() {
           {w.distance_m ? (
             <div className="tile"><div className="label">Distance</div>
               <div className="value num">{showDistance(w.distance_m, units)}<small>{distUnit(units)}</small></div></div>
-          ) : <div className="tile"><div className="label">Load</div><div className="value num">{w.session_load ? Math.round(w.session_load) : "–"}</div></div>}
+          ) : <div className="tile"><div className="label">Load</div>
+                <div className="value num">{w.features?.internal_load != null ? Math.round(w.features.internal_load) : w.session_load ? Math.round(w.session_load) : "–"}</div></div>}
           <div className="tile"><div className="label">{w.avg_hr ? "Avg HR" : "Sets"}</div>
             <div className="value num">{w.avg_hr ?? w.sets?.filter((s) => !s.is_warmup).length ?? 0}</div></div>
         </div>
@@ -74,6 +75,7 @@ export default function WorkoutDetail() {
       </div>
 
       {w.features && <SessionCard f={w.features} units={units} />}
+      <ChannelsCard w={w} onSave={(body) => patch(body)} />
 
       {w.splits && w.splits.length > 0 && (
         <div className="list">
@@ -129,6 +131,31 @@ export default function WorkoutDetail() {
                            lastInSession={groups.find(([eid]) => eid === adding.id)?.[1].sets.at(-1)}
                            onClose={() => setAdding(null)} onSaved={refresh} />}
     </div>
+  );
+}
+
+/** A6: sprint metres and jump contacts load hamstrings and tendons in ways heart rate misses. */
+function ChannelsCard({ w, onSave }: { w: Workout; onSave: (b: { plyo_contacts?: number; sprint_m?: number }) => void }) {
+  const [sprint, setSprint] = useState(w.sprint_m != null ? String(w.sprint_m) : "");
+  const [contacts, setContacts] = useState(w.plyo_contacts != null ? String(w.plyo_contacts) : "");
+  const derived = w.features?.plyo_contacts != null && w.plyo_contacts == null ? w.features.plyo_contacts : null;
+  const changed = sprint !== (w.sprint_m != null ? String(w.sprint_m) : "") || contacts !== (w.plyo_contacts != null ? String(w.plyo_contacts) : "");
+  return (
+    <details className="card tight">
+      <summary className="small">Sprints and jumps{w.sprint_m || w.plyo_contacts || derived ? ` · ${[w.sprint_m ? `${w.sprint_m} m sprinting` : null,
+        (w.plyo_contacts ?? derived) ? `${w.plyo_contacts ?? derived} contacts` : null].filter(Boolean).join(", ")}` : " (optional)"}</summary>
+      <div className="stack" style={{ marginTop: 12 }}>
+        <div className="grid2">
+          <label className="field">Sprint metres (above 90% speed)<input inputMode="numeric" value={sprint} onChange={(e) => setSprint(e.target.value)} /></label>
+          <label className="field">Jump / foot contacts<input inputMode="numeric" value={contacts} placeholder={derived != null ? `${derived} from lifts` : ""}
+                 onChange={(e) => setContacts(e.target.value)} /></label>
+        </div>
+        <p className="tiny muted" style={{ margin: 0 }}>Each has its own weekly ramp cap. Box jumps logged as lifts count automatically.</p>
+        <button className="btn small" disabled={!changed} style={{ alignSelf: "flex-start" }} onClick={() => onSave({
+          ...(sprint !== "" ? { sprint_m: Number(sprint) } : {}), ...(contacts !== "" ? { plyo_contacts: Number(contacts) } : {}),
+        })}>Save</button>
+      </div>
+    </details>
   );
 }
 
