@@ -7,7 +7,8 @@ import {
   ApiError, type Action, type Exercise, type Experiment, type Food, type FoodEntry, type Hypothesis, type Injury,
   type Journal, type LiftSet, type Meal, type Planned, type Profile, type Proposals, type Recommendation,
   type Goal, type GoalProgress, type PerfTest, type Rule, type SavedMeal, type Target, type TargetProposal, type TestKey,
-  type TagCode, type TestProtocol, type TestsData, type Workout, type ZonesData,
+  type TagCode, type TestProtocol, type TestsData, type Workout, type ZonesData, type LibraryData, type LibrarySession,
+  type ShoulderState,
 } from "../api";
 import { addDays, isoDate, parseIso } from "../dates";
 
@@ -224,6 +225,9 @@ const planned: Planned[] = [
   P(11, "game", "ultimate", 90, 8, "league game", null, "manual"),
   P(12, "moderate", "run", 80, 4, "long run"),
 ];
+Object.assign(planned[3], { session_code: "strength_upper", addons: ["shoulder_bands"], notes: "Upper-body push and pull",
+  addon_names: ["Rotator cuff and scapular work"] });
+Object.assign(planned[6], { session_code: "vo2_3x3", notes: "VO2 intervals 3 x 3 min", planned_rpe: 8, planned_duration_min: 45 });
 
 // ------------------------------------------------------------------ body
 const injuries: Injury[] = [
@@ -1048,13 +1052,80 @@ routes.push(
 );
 
 // ------------------------------------------------------------------ one-tap tags (A4)
-const TAGS: TagCode[] = ["sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak"];
+const TAGS: TagCode[] = ["sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak",
+  "shoulder_sore"];
 const dayTags = new Map<string, TagCode[]>([[day(-1), ["alcohol"]]]);
 routes.push(
   ["GET", /^\/tags\/([\d-]+)$/, (m) => ({ date: m[1], tags: dayTags.get(m[1]) ?? [], available: TAGS })],
   ["PUT", /^\/tags\/([\d-]+)$/, (m, _q, b) => {
     dayTags.set(m[1], b.tags);
     return { date: m[1], tags: b.tags, available: TAGS };
+  }],
+);
+
+// ------------------------------------------------------------------ shoulders and the session library (F2)
+const shoulderPain = new Map<string, number>();
+function shoulderView(d: string): ShoulderState {
+  const week = Array.from({ length: 7 }, (_, k) => addDays(d, -k));
+  const sore = week.filter((x) => dayTags.get(x)?.includes("shoulder_sore") || (shoulderPain.get(x) ?? 0) >= 3);
+  const last = sore.sort().at(-1);
+  const lowAfter = last ? week.filter((x) => x > last && (shoulderPain.get(x) ?? 99) < 3).length : 0;
+  const flagged = !!last && lowAfter < 2;
+  const pain = shoulderPain.get(d) ?? null;
+  return { flagged, source: last ? "tag" : null, since: sore[0], pain_today: pain, checkin_needed: flagged && pain == null };
+}
+const LIB: Omit<LibrarySession, "changes" | "fits" | "reasons" | "expected_load" | "hr_target">[] = [
+  { code: "vo2_3x3", name: "VO2 intervals 3 x 3 min", category: "endurance", purpose: "Raise VO2 max: first step toward 4 x 4",
+    sport: "run", plan_type: "hard", hard: true, addon: false, target: "Hard: 90-95% of max HR", rpe: 8, duration_min_lo: 40,
+    duration_min_hi: 45, structure: "15 min easy, 3 x 3 min hard with 3 min jogging at about 70% between, 10 min easy. Wrist HR lags: steer the first minute of each rep by effort or pace and use HR only from minute 2 on.",
+    equipment: [], travel_ok: false, phases: null, progression_group: "vo2", level: 1, source_ref: "Helgerud et al. 2007; Hov et al. 2023", exercises: [] },
+  { code: "easy_run", name: "Easy run", category: "endurance", purpose: "Aerobic volume without fatigue", sport: "run",
+    plan_type: "easy", hard: false, addon: false, target: "Easy: zone 1-2, able to talk in full sentences", rpe: 3,
+    duration_min_lo: 30, duration_min_hi: 45, structure: "Relaxed pace the whole way. If HR drifts above zone 2, slow down or walk briefly.",
+    equipment: [], travel_ok: true, phases: null, progression_group: null, level: null, source_ref: null, exercises: [] },
+  { code: "strength_upper", name: "Upper-body push and pull", category: "strength", purpose: "Balanced upper-body strength",
+    sport: "strength", plan_type: "strength", hard: false, addon: false, target: "Moderate: 2 reps in reserve", rpe: 6,
+    duration_min_lo: 40, duration_min_hi: 50, structure: "Alternate push and pull. Overhead pressing becomes landmine pressing while the shoulders are sore.",
+    equipment: ["barbell"], travel_ok: false, phases: null, progression_group: null, level: null, source_ref: null,
+    exercises: [{ exercise: "Bench press", sets: 3, reps: "5-8" }, { exercise: "Overhead press", sets: 3, reps: "6-8" },
+      { exercise: "Pull-up", sets: 3, reps: "2 short of failure" }, { exercise: "Barbell row", sets: 3, reps: "8" }] },
+  { code: "shoulder_bands", name: "Rotator cuff and scapular work", category: "prehab", purpose: "Shoulders: cuff strength and scapular control",
+    sport: "prehab", plan_type: "easy", hard: false, addon: true, target: "Light band, controlled", rpe: 3, duration_min_lo: 10,
+    duration_min_hi: 15, structure: "Light enough to stay pain-free. 2-3 times a week; a band fits in a bag, so it works on travel days.",
+    equipment: ["band"], travel_ok: true, phases: null, progression_group: null, level: null, source_ref: null,
+    exercises: [{ exercise: "Band external rotation", sets: 2, reps: "12-15 each side" }, { exercise: "Band pull-apart", sets: 2, reps: "15" }] },
+  { code: "copenhagen_l1", name: "Copenhagen adduction, level 1", category: "prehab", purpose: "Groin: adductor strength",
+    sport: "prehab", plan_type: "easy", hard: false, addon: true, target: "Controlled, a little hard by the last rep", rpe: 4,
+    duration_min_lo: 5, duration_min_hi: 8, structure: "Side plank with the top knee on a bench or chair; lift the hips and lower leg, lower slowly.",
+    equipment: [], travel_ok: true, phases: null, progression_group: "copenhagen", level: 1,
+    source_ref: "Harøy et al. 2019 (Adductor Strengthening Programme: 41% fewer groin problems)",
+    exercises: [{ exercise: "Copenhagen adduction L1", sets: 2, reps: "6-10 each side" }] },
+];
+function libraryView(d: string): LibraryData {
+  const sore = shoulderView(d).flagged;
+  return {
+    state: { date: d, phase: "base", hrv_status: null, restrictions: [], shoulder_flagged: sore, copenhagen_level: 1,
+      copenhagen_reason: "starting at level 1" },
+    sessions: LIB.map((s) => {
+      const swap = sore && s.code === "strength_upper";
+      const mid = Math.round((s.duration_min_lo + s.duration_min_hi) / 2);
+      return {
+        ...s, fits: true, reasons: [],
+        exercises: swap ? s.exercises.map((e) => e.exercise === "Overhead press" ? { ...e, exercise: "Landmine press" } : e) : s.exercises,
+        changes: swap ? ["Overhead press becomes Landmine press while the shoulders are sore"] : [],
+        hr_target: s.code === "vo2_3x3" ? { bpm: [177, 187], pct_max: [90, 95], max_hr: 197, provisional: false } : null,
+        expected_load: { minutes: mid, internal: Math.round(mid * s.rpe * 0.4), plyo_contacts: 0, sprint_m: 0, shoulder_min: 0 },
+      };
+    }),
+  };
+}
+routes.push(
+  ["GET", /^\/shoulder\/([\d-]+)$/, (m) => shoulderView(m[1])],
+  ["PUT", /^\/shoulder\/([\d-]+)$/, (m, _q, b) => { shoulderPain.set(m[1], b.pain); return shoulderView(m[1]); }],
+  ["GET", /^\/session-library$/, (_m, q) => libraryView(q.get("day") ?? TODAY)],
+  ["GET", /^\/session-library\/(\w+)$/, (m, q) => {
+    const v = libraryView(q.get("day") ?? TODAY);
+    return { state: v.state, session: v.sessions.find((s) => s.code === m[1]) ?? notFound() };
   }],
 );
 

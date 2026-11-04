@@ -29,7 +29,7 @@ OVERNIGHT_METRICS = {
 OUTCOME_DIRECTION = {
     "hrv_z_30d": 1, "rhr_z_30d": -1, "sleep_score_z_30d": 1, "hrv": 1, "resting_hr": -1,
     "sleep_score": 1, "sleep_total_min": 1, "energy": 1, "mood": 1, "soreness": -1,
-    "max_pain_activity": -1, "avg_stress": -1,
+    "max_pain_activity": -1, "avg_stress": -1, "shoulder_pain": -1,
 }
 
 ZERO_WHEN_LOGGED = {"last_caffeine_hour", "caffeine_mg", "alcohol_drinks"}
@@ -168,6 +168,10 @@ class MetricResolver:
         if name == "injury_seen_professional":
             row = fetch_one(self.conn, "SELECT seen_professional FROM core.injury WHERE id = %s", (int(arg),))
             return None if row is None else float(bool(row["seen_professional"]))
+        if name == "area_seen_professional":
+            from healthtracker.planning.prehab import seen_professional
+
+            return float(seen_professional(self.conn, arg))
         if name == "bedtime_hour":
             row = fetch_one(self.conn,
                             """SELECT extract(epoch FROM (sleep_start AT TIME ZONE %s)

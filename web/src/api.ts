@@ -203,6 +203,9 @@ export interface Planned {
   status: "planned" | "done" | "skipped" | "modified";
   origin: "manual" | "generated";
   notes: string | null;
+  session_code?: string | null;   // F2 library entry
+  addons?: string[] | null;
+  addon_names?: string[] | null;
 }
 
 export interface Checkin {
@@ -497,7 +500,8 @@ export interface ZonesData {
 }
 
 // ------------------------------------------------------------------ one-tap tags (A4)
-export type TagCode = "sick" | "travel" | "alcohol" | "high_stress" | "dizzy" | "dizzy_training" | "hamstring_tight" | "groin_tweak";
+export type TagCode = "sick" | "travel" | "alcohol" | "high_stress" | "dizzy" | "dizzy_training" | "hamstring_tight" | "groin_tweak"
+  | "shoulder_sore";
 export interface DayTags {
   date: string;
   tags: TagCode[];
@@ -527,3 +531,50 @@ export interface SeasonData {
 export const PHASE_LABEL: Record<Phase, string> = {
   base: "Base", deload: "Deload", vo2_build: "VO₂ build", preseason: "Pre-season", in_season: "In season", transition: "Transition",
 };
+
+// ------------------------------------------------------------------ session library (F2)
+export interface LibraryExercise { exercise: string; sets: number; reps: string; note?: string }
+export interface LibrarySession {
+  code: string;
+  name: string;
+  category: "endurance" | "speed_jump" | "ultimate" | "strength" | "prehab" | "mobility";
+  purpose: string;
+  sport: string;
+  plan_type: "easy" | "moderate" | "hard" | "strength";
+  hard: boolean;
+  addon: boolean;
+  target: string;
+  rpe: number;
+  duration_min_lo: number;
+  duration_min_hi: number;
+  structure: string;
+  equipment: string[];
+  travel_ok: boolean;
+  phases: Phase[] | null;
+  progression_group: string | null;
+  level: number | null;
+  source_ref: string | null;
+  exercises: LibraryExercise[];
+  changes: string[];          // swaps applied today (sore shoulders, restrictions)
+  fits: boolean;
+  reasons: string[];          // why it doesn't fit today
+  hr_target: { bpm: [number, number]; pct_max: [number, number]; max_hr: number; provisional: boolean } | null;
+  expected_load: { minutes: number; internal: number; plyo_contacts: number; sprint_m: number; shoulder_min: number };
+}
+export interface LibraryState {
+  date: string;
+  phase: Phase;
+  hrv_status: "below" | "within" | "above" | null;
+  restrictions: string[];
+  shoulder_flagged: boolean;
+  copenhagen_level: number;
+  copenhagen_reason: string;
+}
+export interface LibraryData { state: LibraryState; sessions: LibrarySession[] }
+export interface ShoulderState {
+  flagged: boolean;
+  source: "injury" | "tag" | "checkin" | null;
+  since?: string;
+  pain_today: number | null;
+  checkin_needed: boolean;
+}

@@ -19,6 +19,7 @@ from healthtracker.config import get_settings
 from healthtracker.db import fetch_df, fetch_one, upsert
 from healthtracker.features.intensity import rolling_shares, session_zones
 from healthtracker.features.zones import hr_max
+from healthtracker.planning.prehab import prehab_params
 from healthtracker.planning.season import phase_on, phases
 from healthtracker.profile import Profile, load_profile
 
@@ -40,6 +41,8 @@ FEATURE_COLUMNS = [
     "acute_ewma", "chronic_ewma", "load_week", "load_week_prev", "load_week_change_pct", "run_load_week",
     "run_load_week_prev", "plyo_week", "plyo_week_prev", "sprint_week", "sprint_week_prev",
     "zone_min_14d", "easy_pct_14d", "mid_pct_14d", "season_phase",
+    # F2 shoulders
+    "tag_shoulder", "shoulder_pain",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -460,6 +463,14 @@ def context_flags(df: pd.DataFrame, conn: psycopg.Connection, tz: str) -> None:
     df["tag_alcohol"] = df.index.isin(list(tagged)) | (df["alcohol_drinks"].fillna(0) > 0)
     stress_tag = (set(events.loc[events["type_code"] == "high_stress", "date"]) if not events.empty else set())
     df["tag_stress"] = df.index.isin(list(stress_tag)) | (df["journal_stress"].fillna(0) >= 4)
+    # F2: a sore-shoulder tag, or that day's shoulder check-in at or above the pain threshold
+    pain = fetch_df(conn, """SELECT (ts AT TIME ZONE %(tz)s)::date AS date, max(value) AS pain FROM core.behavior_event
+                             WHERE type_code = 'shoulder_pain' AND value IS NOT NULL GROUP BY 1""", {"tz": tz})
+    pain_by_day = pd.Series(pain["pain"].astype(float).to_numpy(), index=pd.to_datetime(pain["date"])) \
+        if not pain.empty else pd.Series(dtype=float)
+    df["shoulder_pain"] = pain_by_day.reindex(df.index)
+    sore = set(events.loc[events["type_code"] == "shoulder_sore", "date"]) if not events.empty else set()
+    df["tag_shoulder"] = df.index.isin(list(sore)) | (df["shoulder_pain"].fillna(0) >= prehab_params(conn)["shoulder_pain_threshold"])
 
     df["watch_overnight"] = df["sleep_total_min"].notna() & df["hrv"].notna()
     ok = pd.Series(True, index=df.index)

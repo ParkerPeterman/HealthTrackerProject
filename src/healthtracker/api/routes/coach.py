@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from healthtracker.api.deps import bad_request, get_conn, local_date, not_found
 from healthtracker.api.routes.goals import goals_summary
+from healthtracker.api.routes.training import ADDON_NAMES
 from healthtracker.db import execute, fetch_all, fetch_one
 from healthtracker.goals.targets import decide_target, pending_target_proposals
 from healthtracker.jsonutil import to_jsonable
@@ -49,8 +50,9 @@ def today(day: date | None = None, conn: psycopg.Connection = Depends(get_conn))
     tz_row = fetch_one(conn, "SELECT timezone FROM core.profile WHERE id = 1")
     weight = fetch_one(conn, """SELECT weight_kg, ts FROM core.body_measurement
                                 WHERE (ts AT TIME ZONE %s)::date = %s ORDER BY ts LIMIT 1""", (tz_row["timezone"], d))
-    planned = fetch_all(conn, """SELECT * FROM core.planned_session WHERE date = %s AND status <> 'skipped'
-                                 ORDER BY session_type = 'game' DESC""", (d,))
+    planned = fetch_all(conn, f"""SELECT p.*, {ADDON_NAMES} FROM core.planned_session p
+                                  WHERE date = %s AND status <> 'skipped'
+                                  ORDER BY session_type = 'game' DESC, id""", (d,))
     injuries = fetch_all(conn, """SELECT i.id, i.body_part, i.side, i.status,
                                          EXISTS (SELECT 1 FROM core.injury_checkin c
                                                  WHERE c.injury_id = i.id AND c.date = %s) AS checked_in

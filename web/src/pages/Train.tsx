@@ -5,6 +5,7 @@ import { api, PHASE_LABEL, type IntensityWeek, type Planned, type SeasonData, ty
 import { cap, Chips, Empty, Icon, Scale, sessionLook, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { addDays, dayLabel, isoDate, toLocalInput } from "../dates";
 import { fmtDuration, showDistance, showPace, distUnit } from "../units";
+import { LibraryDetail, LibraryPicker } from "./Library";
 import { TestsCard } from "./Tests";
 
 export default function Train() {
@@ -90,6 +91,7 @@ export default function Train() {
                     <div className="title">{cap(p.notes || p.sport)}</div>
                     <div className="meta">
                       {[p.session_type, p.planned_duration_min && `${p.planned_duration_min} min`, p.planned_rpe && `RPE ${p.planned_rpe}`,
+                        p.addon_names?.length ? `+ ${p.addon_names.join(", ")}` : null,
                         p.origin === "generated" ? "auto-planned" : null, p.status !== "planned" ? p.status : null]
                         .filter(Boolean).join(" · ")}
                     </div>
@@ -286,7 +288,16 @@ function PlanSheet({ planned, onClose }: { planned?: Planned; onClose: () => voi
         {planned?.origin === "generated" && (
           <p className="tiny muted" style={{ margin: 0 }}>Auto-planned by the weekly job. Editing it makes it yours, so it won't be regenerated.</p>
         )}
+        {planned?.session_code && p.date && (
+          <div className="card tight"><LibraryDetail code={planned.session_code} date={p.date} addons={planned.addons} /></div>
+        )}
         <label className="field">Date<input type="date" value={p.date} onChange={(e) => setP({ ...p, date: e.target.value })} /></label>
+        {!planned && p.date && p.session_type !== "game" && (
+          <LibraryPicker date={p.date} value={p.session_code} onPick={(s) => setP(s ? {
+            ...p, session_code: s.code, sport: s.sport, session_type: s.plan_type, notes: s.name, planned_rpe: s.rpe,
+            planned_duration_min: Math.round((s.duration_min_lo + s.duration_min_hi) / 2),
+          } : { ...p, session_code: null })} />
+        )}
         <Chips options={TYPES} value={p.session_type ?? null}
                onChange={(t) => setP({ ...p, session_type: t, sport: t === "game" ? "ultimate" : t === "strength" ? "strength" : t === "rest" ? "rest" : p.sport === "ultimate" ? "run" : p.sport })} />
         <label className="field">Sport<input value={p.sport ?? ""} onChange={(e) => setP({ ...p, sport: e.target.value })} /></label>

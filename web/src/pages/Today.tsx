@@ -1,14 +1,18 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type DayTags, type FoodDay, type GoalSummary, type Journal, type Planned, type TagCode, type Today as TodayData } from "../api";
 import {
-  cap, CoachText, Empty, Icon, Ring, ScaleRow, sessionLook, Stars, Stepper, useRun, useUnits,
+  api, type DayTags, type FoodDay, type GoalSummary, type Journal, type Planned, type ShoulderState, type TagCode,
+  type Today as TodayData,
+} from "../api";
+import {
+  cap, CoachText, Empty, Icon, Ring, Scale, ScaleRow, sessionLook, Sheet, Stars, Stepper, useRun, useUnits,
 } from "../components/ui";
 import { addDays, dayLabel, isoDate } from "../dates";
 import { fromKg, showWeight, toKg, weightUnit } from "../units";
 import { GameSheet } from "./Train";
 import { CheckinSheet } from "./Body";
+import { LibraryDetail } from "./Library";
 import { STATUS } from "../goals";
 import { WaterCard } from "../components/Water";
 
@@ -25,7 +29,7 @@ export default function Today() {
     refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
   });
   const [wasRunning, setWasRunning] = useState(false);
-  const [sheet, setSheet] = useState<null | "game" | { injury: number; label: string }>(null);
+  const [sheet, setSheet] = useState<null | "game" | { injury: number; label: string } | { plan: Planned }>(null);
 
   useEffect(() => {
     if (pipe?.running) setWasRunning(true);
@@ -132,7 +136,7 @@ export default function Today() {
 
       <h3 className="section-title">Today's plan</h3>
       {data.planned.length === 0 && <div className="card tight small muted">Nothing planned. Train as you like.</div>}
-      {data.planned.map((p) => <PlanCard key={p.id} p={p} />)}
+      {data.planned.map((p) => <PlanCard key={p.id} p={p} onClick={p.session_code ? () => setSheet({ plan: p }) : undefined} />)}
       <div className="row">
         <button className={`btn grow ${gameToday ? "accent" : ""}`} onClick={() => setSheet("game")}>
           <Icon name="disc" size={18} /> Log a game
@@ -157,6 +161,7 @@ export default function Today() {
       <h3 className="section-title">Check-in</h3>
       <JournalCard date={data.date} journal={data.journal} />
       <TagsCard date={data.date} />
+      <ShoulderCard date={data.date} />
       <WeightCard weightKg={data.weight?.weight_kg ?? null} units={units} />
       <WaterCard />
 
@@ -182,7 +187,12 @@ export default function Today() {
       )}
 
       {sheet === "game" && <GameSheet onClose={() => setSheet(null)} planned={gameToday} />}
-      {sheet && typeof sheet === "object" && (
+      {sheet && typeof sheet === "object" && "plan" in sheet && sheet.plan.session_code && (
+        <Sheet title={cap(sheet.plan.notes || sheet.plan.sport)} onClose={() => setSheet(null)}>
+          <LibraryDetail code={sheet.plan.session_code} date={sheet.plan.date} addons={sheet.plan.addons} />
+        </Sheet>
+      )}
+      {sheet && typeof sheet === "object" && "injury" in sheet && (
         <CheckinSheet injuryId={sheet.injury} label={sheet.label} onClose={() => setSheet(null)} />
       )}
     </div>
@@ -313,7 +323,8 @@ function GoalsCard({ goals }: { goals: GoalSummary[] }) {
 export function PlanCard({ p, onClick }: { p: Planned; onClick?: () => void }) {
   const look = sessionLook(p.session_type, p.sport);
   const meta = [p.planned_duration_min && `${p.planned_duration_min} min`, p.planned_rpe && `RPE ${p.planned_rpe}`,
-    p.focus_muscles?.length ? p.focus_muscles.join(", ").replaceAll("_", " ") : null].filter(Boolean).join(" · ");
+    p.focus_muscles?.length ? p.focus_muscles.join(", ").replaceAll("_", " ") : null,
+    p.addon_names?.length ? `+ ${p.addon_names.join(", ")}` : null].filter(Boolean).join(" · ");
   const body = (
     <>
       <span className={`icon-circle ${look.hue}`}><Icon name={look.icon} size={19} /></span>
@@ -424,6 +435,7 @@ function JournalCard({ date, journal }: { date: string; journal: Journal | null 
 const TAG_LABEL: Record<TagCode, string> = {
   sick: "Sick", travel: "Travel", alcohol: "Drinks", high_stress: "High stress", dizzy: "Dizzy",
   dizzy_training: "Dizzy in training", hamstring_tight: "Tight hamstring", groin_tweak: "Groin tweak",
+  shoulder_sore: "Sore shoulders",
 };
 
 /** Optional one-tap tags for the day. Each tap saves; sick and travel days stay out of baselines. */
@@ -437,6 +449,7 @@ function TagsCard({ date }: { date: string }) {
     await api.put(`/tags/${date}`, { tags });
     qc.invalidateQueries({ queryKey: ["tags", date] });
     qc.invalidateQueries({ queryKey: ["events"] });
+    qc.invalidateQueries({ queryKey: ["shoulder", date] });
   });
   return (
     <div className="card tight stack" style={{ gap: 10 }}>
@@ -484,6 +497,32 @@ function WeightCard({ weightKg, units }: { weightKg: number | null; units: "impe
       </div>
       <p className="tiny muted" style={{ margin: 0 }}>
         Same scale, after waking, before eating. Day-to-day swings are mostly water; the trend line smooths them out.
+      </p>
+    </div>
+  );
+}
+
+/** F2: while the shoulders are flagged (a sore tag or check-in this week), a 0-10 check-in each day. */
+function ShoulderCard({ date }: { date: string }) {
+  const qc = useQueryClient();
+  const run = useRun();
+  const { data } = useQuery({ queryKey: ["shoulder", date], queryFn: () => api.get<ShoulderState>(`/shoulder/${date}`) });
+  if (!data || data.source === "injury" || (!data.flagged && data.pain_today == null)) return null;
+  const save = (v: number | null) => v != null && run(async () => {
+    await api.put(`/shoulder/${date}`, { pain: v });
+    qc.invalidateQueries({ queryKey: ["shoulder", date] });
+  }, "Shoulder check-in saved");
+  return (
+    <div className="card tight stack" style={{ gap: 10 }}>
+      <div className="spread">
+        <span className="small" style={{ fontWeight: 550 }}>Shoulder pain today</span>
+        <span className="tiny muted">0 none · 10 worst</span>
+      </div>
+      <Scale n={11} start={0} value={data.pain_today} onChange={save} label="shoulder pain" />
+      <p className="tiny muted" style={{ margin: 0 }}>
+        {data.flagged
+          ? "Asked daily while your shoulders are sore. Landmine presses replace overhead pressing until two low days in a row."
+          : "Shoulders look fine again. This check-in stops tomorrow."}
       </p>
     </div>
   );

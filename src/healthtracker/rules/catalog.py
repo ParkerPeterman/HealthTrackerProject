@@ -571,6 +571,58 @@ def inj_see_professional(ctx: RuleContext, p: dict) -> RuleResult:
     return RuleResult(True, 3, {"flagged": flagged}, actions)
 
 
+AREA_EVENTS = {"groin": ("tag_groin", "Groin tweaks"), "shoulder": ("tag_shoulder", "Sore shoulders")}
+
+
+@rule("INJ_PHYSIO_PROMPT")
+def inj_physio_prompt(ctx: RuleContext, p: dict) -> RuleResult:
+    """Groin and shoulder problems recur: suggest a physio assessment once, and again only
+    when they become more frequent than when it was last suggested."""
+    window, need, gap = int(p["window_days"]), int(p["min_events"]), int(p["min_days_between"])
+    f = ctx.window(ctx.date - timedelta(days=window - 1), ctx.date)
+    counts, prompted, actions = {}, [], []
+    for area, (col, many) in AREA_EVENTS.items():
+        n = int(f[col].fillna(False).astype(bool).sum()) if col in f else 0
+        counts[area] = n
+        state = ctx.body.get(area) or {}
+        last = state.get("last_prompt")
+        if n < need:
+            continue
+        if last is None:
+            if state.get("seen_professional"):
+                continue
+            text = (f"{many} keep coming back ({n} in the last {window} days). {area.capitalize()} problems "
+                    f"tend to recur, so a physiotherapist assessment is worth considering")
+        elif n > last["count"] and (ctx.date - last["date"]).days >= gap:
+            text = (f"{many} are more frequent: {n} in the last {window} days, up from {last['count']} when a "
+                    f"physiotherapist assessment was last suggested. It's worth considering")
+        else:
+            continue
+        prompted.append({"area": area, "count": n})
+        actions.append(Action(text, f"area_seen_professional:{area}", "=", 1, ctx.date + timedelta(days=14)))
+    details = {"counts": counts, "window_days": window, "prompted": prompted}
+    if not prompted:
+        return RuleResult(False, details=details)
+    return RuleResult(True, 2, details, actions)
+
+
+@rule("INJ_SHOULDER_SWAP", outcome="shoulder_pain@1")
+def inj_shoulder_swap(ctx: RuleContext, p: dict) -> RuleResult:
+    sh = ctx.body.get("shoulder") or {}
+    if not sh.get("flagged"):
+        return RuleResult(False, details={"reason": "shoulders not flagged"})
+    upper = {"shoulders", "chest", "triceps"}
+    lifts = [s for s in ctx.planned_on(ctx.date) if s["session_type"] == "strength"
+             and (s.get("session_code") in sh.get("overhead_codes", [])
+                  or (not s.get("session_code") and (not s.get("focus_muscles") or upper & set(s["focus_muscles"]))))]
+    details = {"source": sh.get("source"), "since": sh.get("since")}
+    if not lifts:
+        return RuleResult(False, details={**details, "reason": "no pressing planned today"})
+    action = Action("Shoulders are sore: do landmine presses instead of overhead pressing today",
+                    "pattern_sets_day:vertical_push", "<=", 0, ctx.date)
+    return RuleResult(True, 2, details, [action])
+
+
 # ------------------------------------------------------------------ experiments
 @rule("EXPERIMENT_PROTOCOL")
 def experiment_protocol(ctx: RuleContext, p: dict) -> RuleResult:

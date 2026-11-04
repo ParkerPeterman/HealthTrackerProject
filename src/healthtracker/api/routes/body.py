@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 from healthtracker.api.deps import get_conn, local_date, not_found, now_local
 from healthtracker.db import execute, fetch_all, fetch_one, insert, upsert
 from healthtracker.jsonutil import to_jsonable
+from healthtracker.planning.prehab import save_shoulder_checkin, shoulder_state
 from healthtracker.profile import load_profile
 
 router = APIRouter(prefix="/api", tags=["body"])
@@ -216,8 +217,10 @@ def delete_event(event_id: int, conn: psycopg.Connection = Depends(get_conn)) ->
 
 
 # ------------------------------------------------------------------ one-tap tags (A4)
-TAGS = ("sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak")
-TagCode = Literal["sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak"]
+TAGS = ("sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak",
+        "shoulder_sore")
+TagCode = Literal["sick", "travel", "alcohol", "high_stress", "dizzy", "dizzy_training", "hamstring_tight", "groin_tweak",
+                  "shoulder_sore"]
 
 
 def _day_tags(conn: psycopg.Connection, day: date, tz: str) -> list[str]:
@@ -247,3 +250,20 @@ def put_tags(day: date, body: TagsIn, conn: psycopg.Connection = Depends(get_con
     for code in sorted(want - have):
         insert(conn, "core.behavior_event", {"ts": noon, "type_code": code, "note": "tag"}, returning=None)
     return get_tags(day, conn)
+
+
+# ------------------------------------------------------------------ shoulder check-in (F2)
+class ShoulderIn(BaseModel):
+    pain: int = Field(ge=0, le=10)
+
+
+@router.get("/shoulder/{day}")
+def get_shoulder(day: date, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Whether the shoulders are flagged and today's 0-10 check-in, shown on Today while flagged."""
+    return to_jsonable(shoulder_state(conn, day, load_profile(conn).timezone))
+
+
+@router.put("/shoulder/{day}")
+def put_shoulder(day: date, body: ShoulderIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    save_shoulder_checkin(conn, day, body.pain, load_profile(conn))
+    return get_shoulder(day, conn)

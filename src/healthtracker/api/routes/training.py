@@ -14,7 +14,18 @@ from healthtracker.api.deps import bad_request, get_conn, local_date, not_found,
 from healthtracker.db import execute, fetch_all, fetch_one, insert, upsert
 from healthtracker.features.load import apply_factor, current_factor
 from healthtracker.features.sessions import session_rows
+from healthtracker.features.zones import current_zones
 from healthtracker.jsonutil import to_jsonable
+from healthtracker.planning.library import (
+    check,
+    copenhagen_level,
+    day_state,
+    exercise_meta,
+    exercises_for,
+    expected_load,
+    hr_target,
+    load_library,
+)
 from healthtracker.profile import load_profile
 
 router = APIRouter(prefix="/api", tags=["training"])
@@ -252,6 +263,8 @@ def delete_set(set_id: int, conn: psycopg.Connection = Depends(get_conn)) -> dic
 
 # ------------------------------------------------------------------ planned sessions
 SessionType = Literal["game", "hard", "moderate", "easy", "strength", "rest"]
+ADDON_NAMES = """(SELECT array_agg(l.name ORDER BY l.day_order, l.code) FROM knowledge.session_library l
+                  WHERE l.code = ANY(p.addons)) AS addon_names"""
 
 
 class PlannedIn(BaseModel):
@@ -263,6 +276,8 @@ class PlannedIn(BaseModel):
     focus_muscles: list[str] | None = None
     status: Literal["planned", "done", "skipped", "modified"] = "planned"
     notes: str | None = None
+    session_code: str | None = None   # F2 library entry
+    addons: list[str] | None = None
 
 
 @router.get("/planned")
@@ -270,18 +285,30 @@ def list_planned(start: date | None = None, end: date | None = None,
                  conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     start = start or local_date(conn) - timedelta(days=1)
     end = end or start + timedelta(days=14)
-    return to_jsonable(fetch_all(conn, """SELECT * FROM core.planned_session WHERE date BETWEEN %s AND %s
-                                          ORDER BY date, session_type = 'game' DESC, id""", (start, end)))
+    return to_jsonable(fetch_all(conn, f"""SELECT p.*, {ADDON_NAMES} FROM core.planned_session p
+                                           WHERE date BETWEEN %s AND %s
+                                           ORDER BY date, session_type = 'game' DESC, id""", (start, end)))
+
+
+def _check_codes(conn: psycopg.Connection, body: PlannedIn) -> None:
+    codes = [c for c in [body.session_code, *(body.addons or [])] if c]
+    if codes:
+        known = {r["code"] for r in fetch_all(conn, "SELECT code FROM knowledge.session_library WHERE code = ANY(%s)",
+                                              (codes,))}
+        if set(codes) - known:
+            raise bad_request(f"unknown library session: {', '.join(sorted(set(codes) - known))}")
 
 
 @router.post("/planned")
 def create_planned(body: PlannedIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    _check_codes(conn, body)
     pid = insert(conn, "core.planned_session", {**body.model_dump(), "origin": "manual"})
     return {"id": pid}
 
 
 @router.put("/planned/{planned_id}")
 def update_planned(planned_id: int, body: PlannedIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    _check_codes(conn, body)
     d = body.model_dump()
     # Editing a generated session makes it mine: it won't be regenerated.
     n = execute(conn, f"""UPDATE core.planned_session SET {', '.join(f'{k} = %s' for k in d)},
@@ -302,3 +329,36 @@ def intensity(weeks: int = 8, conn: psycopg.Connection = Depends(get_conn)) -> l
     """D4: weekly easy / moderate / hard minutes, newest last."""
     rows = fetch_all(conn, "SELECT * FROM analytics.intensity_weekly ORDER BY week_start DESC LIMIT %s", (weeks,))
     return to_jsonable(rows[::-1])
+
+
+# ------------------------------------------------------------------ session library (F2)
+def _library_view(conn: psycopg.Connection, day: date) -> tuple[dict, list[dict]]:
+    profile = load_profile(conn)
+    state = day_state(conn, day, profile.timezone)
+    meta, zones, factor = exercise_meta(conn), current_zones(conn), current_factor(conn)
+    level, why = copenhagen_level(conn, day, profile.timezone)
+    out = []
+    for e in load_library(conn).values():
+        exercises, notes = exercises_for(e, state, meta)
+        reasons = check(e, state, meta)
+        if e["progression_group"] == "copenhagen" and e["level"] != level:
+            reasons.append(f"you're on level {level} ({why})")
+        out.append({**e, "exercises": exercises, "changes": notes, "fits": not reasons, "reasons": reasons,
+                    "hr_target": hr_target(e, zones), "expected_load": expected_load(e, factor)})
+    return {**state.as_dict(), "copenhagen_level": level, "copenhagen_reason": why}, out
+
+
+@router.get("/session-library")
+def session_library(day: date | None = None, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Every library session, with today's swaps and whether (and why not) it fits the day."""
+    state, sessions = _library_view(conn, day or local_date(conn))
+    return to_jsonable({"state": state, "sessions": sessions})
+
+
+@router.get("/session-library/{code}")
+def library_session(code: str, day: date | None = None, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    state, sessions = _library_view(conn, day or local_date(conn))
+    hit = next((s for s in sessions if s["code"] == code), None)
+    if not hit:
+        raise not_found("unknown library session")
+    return to_jsonable({"state": state, "session": hit})
