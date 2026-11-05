@@ -29,9 +29,17 @@ Positive `outcome_delta` always means better. Overnight metrics count as known o
 their own date; everything else is known the morning after.
 
 Shadow rules produce hidden actions that are graded the same way. The weekly job proposes promoting
-a shadow rule when graded outcomes are better on followed days (Welch t-test). It proposes retiring
-an active non-safety rule when following it is significantly worse. A personally validated rule
-(the caffeine cutoff) also needs a supported insight. All proposals wait for approval.
+a shadow rule when graded outcomes are better on followed days, and retiring an active non-safety
+rule when following it is significantly worse. A personally validated rule (the caffeine cutoff)
+also needs a supported insight. All proposals wait for approval.
+
+The comparison is fair (G5, `recommend/fair.py`). Advice gets skipped on bad days, and bad days
+have worse outcomes anyway, so a raw followed-vs-not difference flatters every rule. Each action
+logs a coarse decision-time state: HRV band, a night under 7 h, a travel or game day. Followed and
+not-followed days are compared only within the same state, weighted by the followed days, with
+intervals. The raw difference is kept beside it so the bias is visible. In a simulation where
+advice is skipped mostly on bad days, the raw difference is twice the true effect and the matched
+one recovers it.
 
 When two visible actions constrain the same metric on the same day ("nothing above RPE 6" and
 "RPE 4 or less"), only the stricter one is shown. Both are still stored and graded.
@@ -60,7 +68,29 @@ trend, so it skips only sick and travel days.
 - **Missing RPE:** session load is RPE × minutes. When a session has no RPE, it is imputed from
   %HRmax (observed max or Tanaka 208 − 0.7·age).
 
-## When is a finding "supported"?
+## Effects: Bayesian estimates, with the old test as a cross-check
+
+B1 (`stats/bayes.py`, shadow until `COMP_BAYES_EFFECTS` is on): outcome = a + b·exposure at the
+hypothesis's lag + controls, with AR(1) prewhitening and a conjugate Normal-Inverse-Gamma update.
+That makes it exact, fast, and deterministic. It reports the median, 80% and 95% intervals,
+P(direction), P(|b| > SWC), and the days until that would reach 0.8.
+
+- **Priors (B2):** every prior in `knowledge.effect_priors` cites its source, with directions
+  from published research and wide SDs. Without a source the prior is Normal(0, 0.5 SD). No
+  invented numbers.
+- **Doses (B3):** drinks, caffeine mg, and minutes enter as numbers, not yes/no groups.
+- **Lagged effects (B4):** a 'lagged' hypothesis spreads its exposure over the first lag and the
+  three days before it as one exponentially decaying sum. The decay comes from a small grid by
+  model evidence, fitted on identical rows (one AR(1) rho for all) so the evidences compare.
+  When no decay wins at least half the weight, the text says how long it lasts isn't clear yet.
+- **Families (B5):** estimates in a family (evening behaviors -> sleep, load -> recovery) are
+  pooled toward the family mean instead of a Benjamini-Hochberg cut.
+- **The screen (B6):** every exposure x outcome x lag weekly under a strong Normal(0, 0.2 SD)
+  prior (0.1 hid a planted per-drink effect in 90 demo days). Groin tweaks, being rare, get a
+  Bayesian logistic model with Normal(0, 0.5) priors on log-odds. All of it is exploratory: a
+  candidate for an experiment, never a rule.
+
+## When is a finding "supported"? (the OLS cross-check)
 
 For each pre-registered hypothesis (`exposure` expression, `outcome` column, `lag_days`):
 
@@ -105,6 +135,78 @@ stand). Setting targets from the goal screen is an explicit choice; afterwards t
 and nothing changes until I approve. Progress is judged on the smoothed trend against the planned
 path, with a tolerance of one week's planned change (at least 0.45 kg), so one heavy morning never
 reads as "behind".
+
+## The weekly plan
+
+Code builds every session, day, and size (`planning/`); the LLM never touches it.
+
+- **Spacing.** Two hard endurance days, or two hard neuromuscular days (sprints, jumps, heavy
+  legs), are never back to back, and sprints never follow a hard endurance day. A hard endurance
+  day may follow a sprint day; otherwise only two hard days fit in Monday to Thursday.
+  `ANALYSIS_PLAN.strict_spacing = 1` keeps every hard day apart. Quality work lands at least 48
+  hours before a game, or as long as the session's learned recovery cost needs (D5).
+- **Ramp caps.** Running load, sprint metres, and jump contacts are capped by the same guards the
+  rules flag (`planning/ramp.py`). Optional sessions shrink or drop first.
+- **Progression (F5).** The load target rises only after a graded week whose key sessions were
+  done and whose recovery held; otherwise it holds. Every 4th week of a training phase is a
+  deload: key sessions stay at the low end of their range (intensity kept), the rest shrink by
+  the deload factor (about 30% less load), and lifts keep their weight with one set fewer. Lift
+  suggestions follow the RIR of the last session.
+- **Health in the plan (F6).** WHO minutes and strength days are counted from the planned
+  sessions. Easy runs lengthen toward 150 minutes inside the caps, but not in a deload or after
+  recovery flags. A low SRI gets a note, and the protein target is stated in grams.
+- **Return to ultimate (F7).** In pre-season, weeks 1-2 are accelerations only, weeks 3-4 add
+  max-velocity sprinting and cutting, and week 5 on adds game-like work. Each library session
+  names its first stage, and sprint metres scale 0.5 / 0.75 / 1.0 before the caps. Injury
+  restrictions apply on top, everywhere.
+
+## Shadow first
+
+New logic runs hidden before it is shown. Rules have `status = shadow`. Non-rule components
+have `COMP_*` switch rows checked with `components.is_live()`, with initial statuses from the
+brief's phasing table:
+- forecasts (`COMP_FORECASTS`) and the readiness score: in the season
+- change points (`COMP_CHANGE_POINTS`): in pre-season
+- ranked insights and anomalies: from Jan 4
+
+The weekly shadow log (`stats/shadow_log.py`, on the Coach history tab) shows where old and new
+logic disagreed: HRV z vs the band, the two illness checks, the daily adjustment on planned hard
+days, readiness vs the old flags, OLS vs B1, and raw vs fair grading. That is the evidence for
+switching something on; the log changes nothing itself.
+
+## Medication stays apart
+
+Medication tables are sensitive (`COMMENT ... 'sensitive'`, listed in
+`medication.SENSITIVE_TABLES`; a test keeps the two in step). They never reach
+`daily_features`, the recommendation snapshot, or the LLM prompt.
+- **Messages:** every one comes from an approved template, filled by code and added after the
+  LLM guard. The guard also rejects medication, painkiller, and extra-water wording in LLM text.
+- **Never a lever:** medication is never an experiment, never ranked as something to change,
+  and never an input to coaching rules (F4 ignores the readiness flag).
+- **Findings (H3):** a missed-dose finding needs at least 8 missed days behind it. The Section
+  13 evaluation found a spurious "likely" from two.
+- **Shifts (G3):** a dose change near a shift is linked only in its own sensitive table, and is
+  shown nowhere until a wording is approved.
+
+## Forecasts and change points
+
+Forecasts (G2, `stats/forecast.py`) use the same local-linear-trend model as D3 and E4. Each is
+backtested from rolling origins against a naive forecast (the last value; for weight, the last
+week's mean) and is shown only once it beats naive. Goal arrival dates are ranges (most likely,
+earliest, latest at 80%), or "not within a year".
+
+Change points (G3, `stats/changepoint.py`) are Bayesian online change-point detection. The daily
+series are prewhitened with their own AR(1) first: on autocorrelated noise without prewhitening,
+it found 19 to 84 false shifts per 40 series. A shift is reported about three weeks after it
+happens, with what else changed nearby (tags, phases, logs), as candidates, not causes.
+
+## Evaluation (section 13)
+
+`healthtracker evaluate` builds demo athletes of 14, 30, 60, and 120 days in scratch databases and
+reports what each method finds against what was planted, plus run times. Results and caveats are
+in [evaluation.md](evaluation.md). The demo plants each effect deterministically or on its own
+random stream, so adding one never moves another. The tests set the demo's synthetic home point
+so sessions get the synthetic weather.
 
 ## Scheduling
 

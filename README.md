@@ -44,12 +44,13 @@ flowchart TD
 | Part | What it is |
 |---|---|
 | `src/healthtracker/ingest`, `transform` | Garmin Connect pull (`garminconnect`), FIT fallback, raw -> core parsers, overlap merge (Garmin wins) |
-| `features` | `daily_features` (load, ACWR, baselines over *eligible* days, pace at reference HR), weekly hard sets, e1RM |
-| `rules` | 16 starter rules + experiment protocol; thresholds live in the DB so they can be tuned without code |
-| `recommend` | Recommendation, structured actions, next-day grading (followed? outcome vs baseline) |
+| `features` | `daily_features` (baselines over *eligible* days, HRV/RHR bands), session features, one internal load scale with sprint/jump/shoulder channels, aerobic fitness trend, sleep regularity, readiness (shadow), long-term trends and WHO minutes |
+| `rules` | Starter rules + experiment protocol; thresholds live in the DB so they can be tuned without code |
+| `recommend` | Recommendation, structured actions, next-day grading, fair (state-matched) grading of advice |
 | `llm` | Ollama client, two small calls (training, nutrition), output guard, template fallback |
-| `stats` | Weekly hypothesis tests (OLS + HAC errors, block bootstrap, BH correction, replication), tuning, rule promotion, self-experiments |
-| `planning` | Next week's plan around fixed games, recovery state, and injury restrictions |
+| `stats` | Bayesian effect estimates with cited priors, doses, lags, and pooling; the OLS + HAC cross-check; exploratory screens; randomized block experiments; ranked insights; forecasts backtested against naive; change points; unusual-day explanations; a weekly shadow-comparison log |
+| `planning` | Season phases, a session library, and next week's plan: spacing, ramp caps, progression and deloads, WHO minutes, return to ultimate, weather, injury restrictions |
+| `medication` | Adherence tracking with approved message templates only; sensitive tables kept away from the LLM |
 | `goals` | Weight goals that set calorie/protein targets from my own energy balance; performance, health, and habit goals tracked from `daily_features` |
 | `api` + `web/` | FastAPI + React installable phone app: food (barcode scanning via Open Food Facts), water, lifts, games, weight, journal, injuries, goals |
 | `dashboard` | Streamlit + Plotly, read-only; styled like the app and usable on a phone |
@@ -226,7 +227,8 @@ docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d healthtracker
 | 2 Starter rules & coaching: recommendations, actions, grading, LLM phrasing | Built. Rules start in **shadow** mode; activate the fixed-target ones (protein, calories, post-game, short sleep) once a week of clean data exists |
 | 3 Baselines, lifts, injuries | Built. Baseline rules stay dormant until `min_history_days` (about 21 days) |
 | 4 Learning loop: weekly stats, insights, tuning with approval, self-experiments, shadow promotion | Built. First hypotheses need about 20 days per group |
-| 5 Readiness model, clustering, change points, RAG | Not started (needs 6-12 months of data) |
+| 5 Readiness model, clustering, change points, RAG | Readiness v1, forecasts, and change points built in shadow (analysis upgrade, Nov 2026); learned readiness, clustering, RAG not started |
+| Analysis upgrade (brief of 2026-11-04) | Built on branch `analysis-upgrade`, one commit per item; shadow components switch on by the brief's phasing table. Demo evaluation: [docs/evaluation.md](docs/evaluation.md) |
 
 ## CLI
 
@@ -237,6 +239,7 @@ healthtracker nightly [--date D] [--skip-ingest] [--no-llm]
 healthtracker weekly [--date D]
 healthtracker backfill --start D [--end D] [--llm-days N]
 healthtracker demo [--days 180] [--llm-days N]
+healthtracker evaluate [--days 14,30,60,120] [--out FILE]   # methods vs planted effects, run times
 healthtracker proposals list | approve param|status ID | reject ...
 healthtracker rules list | set RULE_ID shadow|active|retired
 healthtracker experiment HYPOTHESIS_ID [--start D] [--days 14]
@@ -274,7 +277,12 @@ calls exist, and any other needs sign-off:
 
 Medication data (the daily check) is sensitive: it never reaches the LLM or the recommendation
 snapshot, the dashboard shows it only behind an opt-in toggle, demo screenshots never include it, and
-there are no push notifications (web push would route through Google's or Apple's servers).
+there are no push notifications (web push would route through Google's or Apple's servers). The
+sensitive tables are listed in `medication.SENSITIVE_TABLES`; a change point near a dose change is
+recorded only in one of them and shown nowhere.
+
+The demo athlete's weather is synthetic and cached locally for a made-up home point; the demo and
+the tests never call Open-Meteo.
 
 `.env`, `secrets/`, and `data/` are git-ignored. This is not a medical device; anything concerning goes
 to a doctor or physical therapist.

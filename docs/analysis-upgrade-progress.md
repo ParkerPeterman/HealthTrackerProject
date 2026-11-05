@@ -45,14 +45,28 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | F7 | `session_library.return_stage`; pre-season weeks 1-2 accelerations only, 3-4 + max velocity and cutting, 5+ everything; sprint m x 0.5 / 0.75 / 1.0 before the caps; Thursday falls back to hill repeats | 039 |
 | G2 | `stats/forecast.py`, `analytics.forecast`: local linear trend per series + D2 under the plan, rolling-origin backtests vs naive, goal arrival date ranges (`eta` on goal progress), `/api/forecasts`; `COMP_FORECASTS` shadow | 040 |
 | G3 | `stats/changepoint.py`: BOCPD (Normal-Gamma, AR(1) prewhitened), candidate causes, `analytics.change_point`, sensitive `analytics.change_point_medication`, `/api/change-points`; `COMP_CHANGE_POINTS` shadow | 041 |
+| G4 | `stats/anomaly.py`: unusual mornings (2+ robust SD) explained from quality/context flags, my own credible B1 estimates at their lags (one per exposure), and other oddities; nightly; 'anomaly' ranking candidates (also G3 shifts); `COMP_ANOMALIES` shadow | 042 |
+| G5 | `recommend/fair.py`: decision-time state on each action, within-state (CEM) followed-vs-not with intervals; promotion uses it; 'follow_through' ranking candidates; `/api/advice-grades` | 043 |
+| B4 | 'lagged' hypotheses in `stats/bayes.py`: exponential-decay lag sum, tau by evidence on identical rows, `effect_estimate.lag_profile`; hypothesis unique key now includes kind | 044 |
+| S13 plants | interaction, schedule-change change point, heat effect on run HR with synthetic home weather, groin tweaks (own streams); tests set the demo home point | – |
+| S13 eval | `healthtracker evaluate` (`sample/evaluate.py`), runtime rows and budgets (`pipeline/runner.py`), weekly shadow log (`stats/shadow_log.py`, Coach history card); G2 empty-series fix | 045 |
+| H3 fix | no missed-dose finding from fewer than 8 missed days (found by the evaluation) | 046 |
+| F2/B6 tweaks | `stats/tweaks.py`: groin-tweak Bayesian logistic screen (Laplace, strong priors), exploratory, `/api/tweak-screen` | 047 |
+| Docs | README (parts, roadmap, CLI, privacy), design notes (fair grading, B1-B6, the plan, shadow first, medication apart, forecasts and change points, evaluation), `docs/evaluation.md` | – |
 
 ## Next, in order
 
-1. **G4** anomaly explanations: each unusual day explained from the drivers in its structured record (C5 records, E5, A4 flags, G1 drivers).
-2. **G5** fair grading of advice: log the state at decision time (the recommendation snapshot already does), compare followed vs not only among days with similar states, with intervals.
-3. **B4** lagged effects: exponential-decay lags 0-3 days, tau chosen by `log_ev` (B1 machinery).
-4. **Section 13**: plant the remaining demo effects (interaction, change point, temperature effect on HR, groin tweaks) on separate RNG streams; run methods at 14/30/60/120 days; a weekly shadow-comparison log; a runtime check (nightly < 2 min, weekly < 10 min).
-5. README (Privacy is already updated) and design-notes: spacing rule, the medication/LLM separation, B1 priors, shadow switches, F5-F7 and G2-G3.
+Everything in the brief's "Next" list is built. What remains is gated on data or the season:
+
+1. **In-season tapering before tournaments** (F1 table): a lighter week and no hard sessions in the
+   three days before a multi-game day.
+2. **D2 with fitted time constants** once 4-6 months of runs exist (a tau grid by evidence, like B4).
+3. **G1 v2** (about 90 days): learned readiness weights trained on next-session outcomes; must beat
+   v1 on held-out days before it replaces it.
+4. **C4's interaction definition**: "hard day" (load z >= 1) is too strict to ever confirm the
+   planted interaction in 120 demo days (see docs/evaluation.md).
+5. Switch shadow components on by the phasing table (A2 bands and E3 about Dec 1; C1-C4, G1 v1,
+   F4 on Jan 4; F7, D5, G3 on Feb 8; G2 in spring), each after a look at the shadow log.
 
 ## Judgment calls to raise with the owner
 
@@ -66,6 +80,9 @@ never go into code, migrations, tests, or commits; they live only in the databas
 - **F7 holds back max-velocity sprints in pre-season weeks 1-2** even though base and VO2 build include them every other week (the brief's wording). If that feels like a step back, `return_maxv_week = 2` shortens it. Depth jumps are not staged (the jump ramp cap governs them).
 - **F6 SRI threshold 70** is a starting point, not a clinical cutoff (`ANALYSIS_PLAN.sri_low`).
 - **G2 on the demo:** weight and VO2 max forecasts beat naive; aerobic pace (trend and D2) does not yet, so they stay hidden even once live.
+- **G4/G5/B4** are in shadow with the ranking. G5 changed rule promotion itself (matched instead of raw comparison; the proposals still need approval).
+- **H3 minimum of 8 missed days** for a missed-dose finding: stricter than before (it only gated the travel template). Wording unchanged.
+- **Tests now set HOME_LAT/HOME_LON** to the demo's synthetic home point so demo sessions get the synthetic weather (needed once the heat effect was planted).
 - **G3 reports shifts about three weeks late** (it waits 20 measurements to be sure). Dose-change links are stored in the sensitive table but shown nowhere: showing them needs a new approved wording (a ninth template), which is the owner's call.
 
 ## Decisions already made by the owner
@@ -105,7 +122,7 @@ BIN=<scratch>/pgvenv/lib/python3.12/site-packages/pgserver/pginstall/bin
 $BIN/initdb -D <scratch>/pgdata -U health --auth=trust -E UTF8 --locale=C.UTF-8   # first time only
 $BIN/pg_ctl -D <scratch>/pgdata -o "-p 55432 -c unix_socket_directories='' -c listen_addresses=127.0.0.1 -c fsync=off" -l <scratch>/pg.log start
 export TEST_DATABASE_URL=postgresql://health@127.0.0.1:55432/healthtracker_test
-.venv/bin/pytest -q                  # ~312 tests, about two minutes
+.venv/bin/pytest -q                  # ~342 tests, about two minutes
 cd web && npx tsc -b                 # typecheck the app
 ```
 
