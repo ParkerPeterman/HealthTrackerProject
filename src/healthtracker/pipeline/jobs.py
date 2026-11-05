@@ -108,6 +108,12 @@ def _weather_step(d: date) -> int:
         return pull_weather(conn, d)
 
 
+def _session_response(conn, d: date) -> int:
+    from healthtracker.features.session_response import build_session_response
+
+    return build_session_response(conn, d)
+
+
 def _fitness_fatigue(conn, d: date) -> int:
     from healthtracker.features.fitness_fatigue import build_fitness_fatigue
 
@@ -211,6 +217,7 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "insights", step(run_insights), report)
     run_step("weekly", "insight_ranking", step(run_ranking), report)  # C1-C4 (shadow)
     run_step("weekly", "fitness_fatigue", step(_fitness_fatigue), report)  # D2 (shadow)
+    run_step("weekly", "session_response", step(_session_response), report)  # D5 (shadow)
     run_step("weekly", "medication_analysis", step(_med_analysis), report)  # H3, sensitive, shadow
     run_step("weekly", "parameter_tuning", step(run_tuning), report)
     run_step("weekly", "rule_promotion", step(run_promotion), report)

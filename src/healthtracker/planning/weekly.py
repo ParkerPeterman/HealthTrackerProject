@@ -244,6 +244,10 @@ class Week:
         near = self.near_game(i)
         if near and (e["hard"] or e["plan_type"] == "moderate" or is_lower_strength(e, self.meta)):
             out.append(near)
+        # D5: a session's recovery cost (a prior until learned) sets how many days it needs before a game.
+        need = -(-int(e.get("recovery_hours") or 0) // 24)
+        if need > 1 and any(self.game(i + k) for k in range(1, need)):
+            out.append(f"needs {need} days before a game (recovery cost)")
         if not spacing_ok(kind(e), self.kinds(i - 1), self.kinds(i), self.kinds(i + 1), self.strict):
             out.append("too close to another hard day")
         if e["sport"] == "run" and self.has_run(i):
