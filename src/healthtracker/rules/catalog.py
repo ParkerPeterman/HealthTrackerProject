@@ -623,6 +623,31 @@ def inj_shoulder_swap(ctx: RuleContext, p: dict) -> RuleResult:
     return RuleResult(True, 2, details, [action])
 
 
+@rule("RECOV_POSSIBLE_ILLNESS", outcome="hrv_z_30d@1")
+def recov_possible_illness(ctx: RuleContext, p: dict) -> RuleResult:
+    """E5: HRV below its band, resting HR above its band, breathing rate up (when there is one), no load spike."""
+    hrv = ctx.metric_status.get("ln_hrv") or {}
+    rhr = ctx.metric_status.get("resting_hr") or {}
+    if hrv.get("status") is None or rhr.get("status") is None:
+        return RuleResult(False, status="no_data", details={"reason": "bands not drawn yet"})
+    resp = ctx.metric_status.get("resp_rate") or {}
+    resp_z = None
+    if resp.get("value") is not None and resp.get("base_scale"):
+        resp_z = round((float(resp["value"]) - float(resp["base_center"])) / float(resp["base_scale"]), 2)
+    change = ctx.yesterday.get("load_week_change_pct")
+    details = {"hrv_status": hrv["status"], "resting_hr_status": rhr["status"], "resp_z": resp_z,
+               "load_week_change_pct": change}
+    signs = hrv["status"] == "below" and rhr["status"] == "above" and (resp_z is None or resp_z >= p["resp_z"])
+    if not signs:
+        return RuleResult(False, details=details)
+    if change is not None and change >= p["load_spike_pct"]:
+        return RuleResult(False, details={**details, "reason": "explained by a load spike"})
+    easy = int(p["easy_rpe"])
+    return RuleResult(True, 2, details, [Action(
+        f"Your body may be fighting something; take an easy day (RPE {easy} or less)", "max_session_rpe", "<=",
+        easy, ctx.date)])
+
+
 # ------------------------------------------------------------------ daily adjustment (F4, shadow)
 @rule("TRAIN_DAILY_ADJUST", outcome="hrv_z_30d@1")
 def train_daily_adjust(ctx: RuleContext, p: dict) -> RuleResult:

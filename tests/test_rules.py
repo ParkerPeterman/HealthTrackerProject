@@ -207,3 +207,20 @@ def test_daily_adjustment_keep_downgrade_swap_rest():
     r = run(f=short, ms={**band, "ln_hrv": {"status": "below"}})
     assert r.details["decision"] == "rest" and r.actions[0].target_value == 3
     assert not catalog.train_daily_adjust(ctx(features=ok, metric_status=band, planned=[easy_later]), ADJ).fired
+
+
+def test_possible_illness_flag():
+    p = {"resp_z": 1.5, "load_spike_pct": 25, "easy_rpe": 3}
+    bad = {"ln_hrv": {"status": "below"}, "resting_hr": {"status": "above"},
+           "resp_rate": {"value": 17.0, "base_center": 14.0, "base_scale": 1.0}}
+    calm = features({D - timedelta(days=1): {"load_week_change_pct": 5.0}})
+    r = catalog.recov_possible_illness(ctx(features=calm, metric_status=bad), p)
+    assert r.fired and r.actions[0].action_text.startswith("Your body may be fighting something; take an easy day")
+    assert "diagnos" not in r.actions[0].action_text.lower()
+    spike = features({D - timedelta(days=1): {"load_week_change_pct": 40.0}})
+    assert not catalog.recov_possible_illness(ctx(features=spike, metric_status=bad), p).fired  # load explains it
+    normal_resp = {**bad, "resp_rate": {"value": 14.2, "base_center": 14.0, "base_scale": 1.0}}
+    assert not catalog.recov_possible_illness(ctx(features=calm, metric_status=normal_resp), p).fired
+    no_resp = {k: v for k, v in bad.items() if k != "resp_rate"}
+    assert catalog.recov_possible_illness(ctx(features=calm, metric_status=no_resp), p).fired  # not ingested: not needed
+    assert catalog.recov_possible_illness(ctx(features=calm, metric_status={}), p).status == "no_data"
