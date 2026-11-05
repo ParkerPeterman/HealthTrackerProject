@@ -87,6 +87,14 @@ def _readiness_step(d: date) -> int:
         return build_readiness(conn, d, days=14)
 
 
+def _anomaly_step(d: date, days: int = 30) -> int:
+    """G4: after the rules, since the possible-illness flag is one of the explanations."""
+    from healthtracker.stats.anomaly import build_anomalies
+
+    with connect() as conn:
+        return build_anomalies(conn, d, days=days)
+
+
 def _fitness_step(d: date) -> int:
     from healthtracker.features.fitness import build_fitness
 
@@ -208,6 +216,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
     run_step("nightly", "recommendation", lambda: state.get("rec", 0), report)
     run_step("nightly", "medication_messages", lambda: _medication_messages(d), report)
     run_step("nightly", "readiness", lambda: _readiness_step(d), report)
+    run_step("nightly", "anomalies", lambda: _anomaly_step(d), report)  # G4 (shadow)
 
     def llm() -> int:
         with connect() as conn:
@@ -348,4 +357,5 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
             return _change_points(conn, end)
 
     run_step("backfill", "change_points", change_points, report)
+    run_step("backfill", "anomalies", lambda: _anomaly_step(end, days=(end - start).days + 1), report)
     return report

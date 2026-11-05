@@ -107,6 +107,16 @@ def change_points(conn: psycopg.Connection = Depends(get_conn)) -> dict:
     return to_jsonable({"live": live, "change_points": rows})
 
 
+@router.get("/anomalies")
+def anomalies(days: int = 30, day: date | None = None, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """G4: unusual days and what in the record explains them."""
+    d = day or local_date(conn)
+    live = is_live(component_status(conn), "COMP_ANOMALIES")
+    rows = fetch_all(conn, """SELECT * FROM analytics.anomaly WHERE date BETWEEN %s::date - %s AND %s
+                              ORDER BY date DESC, metric""", (d, days, d))
+    return to_jsonable({"live": live, "anomalies": rows})
+
+
 @router.get("/goals/metrics")
 def goal_metrics(day: date | None = None, conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """What goals can track, with today's values, so the goal form can prefill sensible targets."""
