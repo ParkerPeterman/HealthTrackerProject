@@ -40,16 +40,19 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | B5 | `stats/pooling.py`, pooled estimates on `effect_estimate` | 034 |
 | D5 | `features/session_response.py`; planner keeps `recovery_hours` before games | 035 |
 | E4 | `features/long_term.py`, `analytics.long_trend`, `analytics.health_weekly` | 036 |
+| F5 | `planning/progression.py`: load grows only after a graded week with key sessions done and recovery held (else holds at 1.0); every 4th week of base / VO2 build / pre-season is a deload (key sessions at the low end, the rest x deload factor, fewer sprint and jump reps, optional sessions dropped, VO2 held); lift suggestions from last session's RIR in the library detail | 037 |
+| F6 | `planning/health.py`: plan `health` block (WHO minutes and strength days from planned sessions, main days vs with optional), easy runs lengthen toward 150 inside the caps (not in deloads or after flags), SRI note, protein in g a day | 038 |
+| F7 | `session_library.return_stage`; pre-season weeks 1-2 accelerations only, 3-4 + max velocity and cutting, 5+ everything; sprint m x 0.5 / 0.75 / 1.0 before the caps; Thursday falls back to hill repeats | 039 |
+| G2 | `stats/forecast.py`, `analytics.forecast`: local linear trend per series + D2 under the plan, rolling-origin backtests vs naive, goal arrival date ranges (`eta` on goal progress), `/api/forecasts`; `COMP_FORECASTS` shadow | 040 |
+| G3 | `stats/changepoint.py`: BOCPD (Normal-Gamma, AR(1) prewhitened), candidate causes, `analytics.change_point`, sensitive `analytics.change_point_medication`, `/api/change-points`; `COMP_CHANGE_POINTS` shadow | 041 |
 
 ## Next, in order
 
-1. **F5-F7** in `planning/weekly.py` (designed, not started):
-   - F5: progression factor only when last week's key sessions were done (week_plan grade) and no caution, else hold at 1.0; a deload every Nth week of a phase (`deload_every`, default 4): deload factor, low-end durations, VO2 level held; strength load suggestions from the last session's RIR (+5% at RIR 3+, +2.5% at 2, hold at 1, -5% at 0) shown in the library detail.
-   - F6: a plan `health` block from planned sessions (moderate/vigorous minutes, strength days vs WHO, from E4's rules); extend easy runs toward 150 equivalent minutes within the caps; a sleep-regularity note when SRI is low; the protein target in the summary.
-   - F7: pre-season return stage by week (1-2: accelerations only, no max velocity, cutting, or game-like; 3-4: max velocity and cutting; 5+: everything), sprint metres scaled 0.5 / 0.75 / 1.0 before the ramp caps.
-2. **G2** forecasts (fitness via D2/D3, Kalman weight trend: check `goals` first, goal ETAs as date ranges; each must beat naive in rolling backtests), **G3** Bayesian online change points (medication dose changes stay in the sensitive tables), **G4** anomaly explanations from drivers and A4 flags, **G5** fair grading of advice (state-matched followed vs not, with intervals), **B4** lagged effects (exponential-decay lags, tau chosen by `log_ev`).
-3. **Section 13**: plant the remaining demo effects (interaction, change point, temperature effect on HR, groin tweaks) on separate RNG streams; run methods at 14/30/60/120 days; a weekly shadow-comparison log; a runtime check (nightly < 2 min, weekly < 10 min).
-4. README (Privacy is already updated) and design-notes: spacing rule, the medication/LLM separation, B1 priors, shadow switches.
+1. **G4** anomaly explanations: each unusual day explained from the drivers in its structured record (C5 records, E5, A4 flags, G1 drivers).
+2. **G5** fair grading of advice: log the state at decision time (the recommendation snapshot already does), compare followed vs not only among days with similar states, with intervals.
+3. **B4** lagged effects: exponential-decay lags 0-3 days, tau chosen by `log_ev` (B1 machinery).
+4. **Section 13**: plant the remaining demo effects (interaction, change point, temperature effect on HR, groin tweaks) on separate RNG streams; run methods at 14/30/60/120 days; a weekly shadow-comparison log; a runtime check (nightly < 2 min, weekly < 10 min).
+5. README (Privacy is already updated) and design-notes: spacing rule, the medication/LLM separation, B1 priors, shadow switches, F5-F7 and G2-G3.
 
 ## Judgment calls to raise with the owner
 
@@ -58,6 +61,12 @@ never go into code, migrations, tests, or commits; they live only in the databas
 - **Journal**: mood and energy are among the journal taps, which answers the brief's open question for H4.
 - **Medication never feeds coaching rules.** F4 ignores the medication readiness flag (it acts only through its own template); dose time is analyzed only in H3, not in E3.
 - **Screen prior 0.2 SD** instead of the brief's 0.1 example: 0.1 hid a planted per-drink effect in 90 demo days.
+- **F5 progression needs a graded plan.** With no plan (or no key sessions) last week the load holds at 1.0, so the very first generated week holds. `progress_key_pct` (default 100) sets how many key sessions must be done.
+- **Deload weeks** count weeks within each phase (base Nov 30, VO2 build Jan 25, pre-season Mar 1 and Mar 29 with the defaults). Key sessions keep their low-end duration (intensity kept); everything else shrinks by the deload factor (0.65), which gives about 30% less load than a normal week. The WHO lengthening is skipped in deloads, on purpose.
+- **F7 holds back max-velocity sprints in pre-season weeks 1-2** even though base and VO2 build include them every other week (the brief's wording). If that feels like a step back, `return_maxv_week = 2` shortens it. Depth jumps are not staged (the jump ramp cap governs them).
+- **F6 SRI threshold 70** is a starting point, not a clinical cutoff (`ANALYSIS_PLAN.sri_low`).
+- **G2 on the demo:** weight and VO2 max forecasts beat naive; aerobic pace (trend and D2) does not yet, so they stay hidden even once live.
+- **G3 reports shifts about three weeks late** (it waits 20 measurements to be sure). Dose-change links are stored in the sensitive table but shown nowhere: showing them needs a new approved wording (a ninth template), which is the owner's call.
 
 ## Decisions already made by the owner
 
@@ -84,6 +93,8 @@ never go into code, migrations, tests, or commits; they live only in the databas
 - Views defined with `SELECT *` must be recreated when their table gains columns (see migration 011).
 - pandas 3 may store datetimes in microseconds: use `.dt.total_seconds()`, not `astype("int64")`.
 - Cast float parameters to `::numeric` before `round(x, n)` in SQL.
+- `planning/progression.py` holds phase-week counting, deload scheduling, return-to-ultimate stages, and lift steps; `DayState.return_stage` carries the stage into the library's `check()`.
+- `medication.SENSITIVE_TABLES` must list every table commented 'sensitive' (a test checks).
 
 ## Testing on this machine
 
@@ -94,7 +105,7 @@ BIN=<scratch>/pgvenv/lib/python3.12/site-packages/pgserver/pginstall/bin
 $BIN/initdb -D <scratch>/pgdata -U health --auth=trust -E UTF8 --locale=C.UTF-8   # first time only
 $BIN/pg_ctl -D <scratch>/pgdata -o "-p 55432 -c unix_socket_directories='' -c listen_addresses=127.0.0.1 -c fsync=off" -l <scratch>/pg.log start
 export TEST_DATABASE_URL=postgresql://health@127.0.0.1:55432/healthtracker_test
-.venv/bin/pytest -q                  # ~263 tests, under two minutes
+.venv/bin/pytest -q                  # ~312 tests, about two minutes
 cd web && npx tsc -b                 # typecheck the app
 ```
 
