@@ -12,6 +12,9 @@ analytics.medication_effect and the approved templates 6-8 only.
   * priors are weak and centred on no effect, Normal(0, 0.5 SD), because the evidence on
     day-to-day effects is mixed; with good adherence the honest answer stays "too early to
     tell" for a long time
+  * a missed-dose finding needs at least `min_missed_for_finding` (8) missed days in its
+    estimate: the Section 13 evaluation found a spurious "likely" from two missed days that
+    happened to follow a trip
 
 Nothing here is advice: a timing finding only ever says it may be worth asking the prescriber.
 """
@@ -103,7 +106,11 @@ def findings(rows: list[dict], share: float | None, n_missed: int, name: str, p:
     if n_missed >= p.get("min_missed_days", 3) and share is not None and share >= p.get("travel_share_confounded", 0.7):
         out.append(("travel_confounded", {}))
     else:
-        missed = [r for r in rows if r["exposure"] == "med_missed" and r["p_meaningful"] is not None]
+        # A finding needs enough missed days behind it: with two or three, one odd stretch (the days
+        # after a trip, say) is the whole estimate. Below that the answer stays "too early to tell".
+        need = p.get("min_missed_for_finding", 8)
+        missed = [r for r in rows if r["exposure"] == "med_missed" and r["p_meaningful"] is not None
+                  and (r.get("n_exposed") or 0) >= need]
         best = max(missed, key=lambda r: r["p_meaningful"], default=None)
         if best and best["p_meaningful"] >= p.get("finding_min_p", 0.6):
             out.append(("missed_effect", {"outcome": WORDS[best["outcome"]],

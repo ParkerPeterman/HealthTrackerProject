@@ -185,8 +185,9 @@ def test_today_card_flow(seeded, db_url):
 def test_h3_findings_pick_the_right_template():
     from healthtracker.medication.analysis import findings
 
-    p = {"min_missed_days": 3, "travel_share_confounded": 0.7, "finding_min_p": 0.6}
-    weak = [{"exposure": "med_missed", "outcome": "hrv", "lag_days": 1, "estimate": -2.0, "p_meaningful": 0.3}]
+    p = {"min_missed_days": 3, "travel_share_confounded": 0.7, "finding_min_p": 0.6, "min_missed_for_finding": 8}
+    weak = [{"exposure": "med_missed", "outcome": "hrv", "lag_days": 1, "estimate": -2.0, "p_meaningful": 0.3,
+             "n_exposed": 12}]
     assert findings(weak, 0.2, 6, "Demozine", p) == [("missed_effect_early", {"outcome": "HRV, resting HR, sleep, or mood"})]
     assert findings(weak, 0.85, 6, "Demozine", p)[0][0] == "travel_confounded"
     strong = [{**weak[0], "estimate": -6.4, "p_meaningful": 0.86},
@@ -194,6 +195,9 @@ def test_h3_findings_pick_the_right_template():
                "p_meaningful": 0.7}]
     out = dict(findings(strong, 0.1, 6, "Demozine", p))
     assert render("missed_effect", **out["missed_effect"]) == "After a missed dose, HRV was 6 ms lower (likely)."
+    # Two missed days can't carry a finding, however confident the estimate looks.
+    few = [{**strong[0], "n_exposed": 2}]
+    assert findings(few, 0.1, 2, "Demozine", p) == [("missed_effect_early", {"outcome": "HRV, resting HR, sleep, or mood"})]
     text = render("dose_time", **out["dose_time"])
     assert "14 min lower per hour later (possibly)" in text and text.endswith("whether timing matters.")
 
