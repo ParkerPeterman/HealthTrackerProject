@@ -1150,6 +1150,27 @@ routes.push(["GET", /^\/fitness$/, () => {
   };
 }]);
 
+routes.push(["POST", /^\/experiments\/design$/, () => {
+  const assignment: Record<string, string> = {};
+  const toMonday = (8 - new Date().getDay()) % 7 || 7;
+  for (let b = 0; b < 8; b++) {
+    const cond = b % 2 === (rand() < 0.5 ? 0 : 1) ? "A" : "B";
+    const len = b % 2 === 0 ? 4 : 3;
+    const off = toMonday + Math.floor(b / 2) * 7 + (b % 2 === 0 ? 0 : 4);
+    for (let k = 0; k < len; k++) assignment[day(off + k)] = cond;
+  }
+  const dates = Object.keys(assignment).sort();
+  experiments.unshift({ id: newId(), hypothesis_id: 0, exposure: "caffeine cutoff", outcome: "sleep_total_min",
+    design: "randomized blocks of 3-4 days (Mon-Thu and Fri-Sun): Caffeine cutoff: noon vs 3 pm",
+    start_date: dates[0], end_date: dates.at(-1)!, status: "planned", assignment: assignment as Experiment["assignment"],
+    protocol: { action_text: "noon or 3 pm caffeine cutoff" }, result_summary: null });
+  return { id: experiments[0].id };
+}]);
+routes.push(["GET", /^\/experiments\/next$/, () => (experiments.some((e) => e.status === "running" || e.status === "planned")
+  ? { suggestion: null }
+  : { suggestion: { code: "caffeine_cutoff", name: "Caffeine cutoff: noon vs 3 pm", weeks: 4,
+      conditions: { A: "noon cutoff", B: "3 pm cutoff" }, outcomes: ["sleep_total_min", "sleep_midpoint_min", "hrv"] } })]);
+
 // Demo mode has no medication: it is sensitive, and demo screenshots never show it (H5).
 routes.push(
   ["GET", /^\/medication\/today$/, () => ({ date: TODAY, medications: [] })],

@@ -259,6 +259,41 @@ def start_experiment(body: ExperimentIn, conn: psycopg.Connection = Depends(get_
     return {"id": eid}
 
 
+@router.get("/experiments/next")
+def suggested_experiment(conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """B7: the block design expected to teach the most now (None if one is already running)."""
+    from healthtracker.stats.designs import DESIGNS, next_experiment
+
+    running = fetch_one(conn, "SELECT 1 FROM analytics.experiment WHERE status IN ('planned','running')")
+    nxt = None if running else next_experiment(conn, local_date(conn))
+    if nxt:
+        des = DESIGNS[nxt["code"]]
+        nxt["conditions"] = {k: v["label"] for k, v in des["conditions"].items()}
+        nxt["outcomes"] = [o for o, _ in des["outcomes"]]
+    return to_jsonable({"suggestion": nxt})
+
+
+class DesignIn(BaseModel):
+    design: str
+    start_date: date | None = None
+
+
+@router.post("/experiments/design")
+def start_block_experiment(body: DesignIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    from healthtracker.stats.designs import DESIGNS, create_block_experiment
+
+    if body.design not in DESIGNS:
+        raise not_found("unknown design")
+    if fetch_one(conn, "SELECT 1 FROM analytics.experiment WHERE status IN ('planned','running')"):
+        raise bad_request("finish or abandon the current experiment first (one at a time keeps results clean)")
+    today = local_date(conn)
+    start = body.start_date or today + timedelta(days=(7 - today.weekday()) % 7 or 7)  # next Monday
+    try:
+        return {"id": create_block_experiment(conn, body.design, start)}
+    except ValueError as exc:
+        raise bad_request(str(exc)) from exc
+
+
 @router.post("/experiments/{experiment_id}/abandon")
 def abandon_experiment(experiment_id: int, conn: psycopg.Connection = Depends(get_conn)) -> dict:
     execute(conn, "UPDATE analytics.experiment SET status = 'abandoned' WHERE id = %s", (experiment_id,))

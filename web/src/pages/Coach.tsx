@@ -209,6 +209,7 @@ function Findings() {
       {supported.length === 0 && <Empty>Nothing has passed every check yet. That takes weeks of data, by design.</Empty>}
       {supported.map((h) => <Finding key={h.id} h={h} />)}
       <h3 className="section-title">Promising, not proven ({weak.length})</h3>
+      {!runningExp && <SuggestedExperiment />}
       <p className="tiny muted" style={{ margin: 0 }}>Randomized self-experiments are the strongest test. Start one for a hypothesis below.</p>
       {weak.map((h) => (
         <Finding key={h.id} h={h} action={h.can_experiment && !runningExp ? () => run(async () => {
@@ -248,7 +249,7 @@ function ExperimentDays({ exp }: { exp: Experiment }) {
   return (
     <div className="row wrap" aria-label="Experiment schedule">
       {days.map(([d, cond]) => (
-        <span key={d} className={`badge ${cond === "treatment" ? "game" : ""}`} title={cond}>
+        <span key={d} className={`badge ${cond === "treatment" || cond === "A" ? "game" : ""}`} title={cond}>
           {new Date(d + "T12:00").toLocaleDateString(undefined, { month: "numeric", day: "numeric" })} {cond === "treatment" ? "T" : "C"}
         </span>
       ))}
@@ -300,6 +301,33 @@ function History() {
           </details>
         );
       })}
+    </div>
+  );
+}
+
+/** B7: the next block-randomized experiment, chosen by how much it should teach about sleep and endurance. */
+function SuggestedExperiment() {
+  const qc = useQueryClient();
+  const run = useRun();
+  const { data } = useQuery({
+    queryKey: ["experiment-next"],
+    queryFn: () => api.get<{ suggestion: { code: string; name: string; weeks: number; conditions: Record<string, string>; outcomes: string[] } | null }>("/experiments/next"),
+  });
+  const s = data?.suggestion;
+  if (!s) return null;
+  return (
+    <div className="card stack" style={{ gap: 8 }}>
+      <div className="spread"><h3>Suggested experiment</h3><span className="tiny muted">{s.weeks} weeks</span></div>
+      <div className="small">{s.name}</div>
+      <p className="tiny muted" style={{ margin: 0 }}>
+        Randomized blocks of 3-4 days ({Object.values(s.conditions).join(" or ")}), starting next Monday. Each day Today shows
+        your condition; the food log grades it, so there is nothing extra to log. Outcomes: {s.outcomes.map((o) => o.replaceAll("_", " ")).join(", ")}.
+      </p>
+      <button className="btn primary small" style={{ alignSelf: "flex-start" }} onClick={() => run(async () => {
+        await api.post("/experiments/design", { design: s.code });
+        qc.invalidateQueries({ queryKey: ["experiments"] });
+        qc.invalidateQueries({ queryKey: ["experiment-next"] });
+      }, "Experiment starts next Monday")}>Start it</button>
     </div>
   );
 }

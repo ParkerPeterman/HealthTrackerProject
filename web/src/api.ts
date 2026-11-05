@@ -403,7 +403,7 @@ export interface Experiment {
   start_date: string;
   end_date: string;
   status: "planned" | "running" | "done" | "abandoned";
-  assignment: Record<string, "treatment" | "control">;
+  assignment: Record<string, "treatment" | "control" | "A" | "B">;  // A/B: block designs (B7)
   protocol: { action_text: string } | null;
   result_summary: string | null;
 }

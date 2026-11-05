@@ -8,6 +8,7 @@ Analysis is intention-to-treat: outcome by assigned condition.
 
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 
 import numpy as np
@@ -15,6 +16,7 @@ import pandas as pd
 import psycopg
 
 from healthtracker.db import execute, fetch_all, fetch_one, insert
+from healthtracker.jsonutil import to_jsonable
 from healthtracker.medication import is_sensitive
 from healthtracker.stats.hypothesis import parse_exposure
 from healthtracker.stats.insights import load_features_frame
@@ -116,8 +118,15 @@ def update_experiments(conn: psycopg.Connection, as_of: date) -> int:
                          WHERE status = 'planned' AND start_date <= %s""", (as_of,))
     for exp in fetch_all(conn, """SELECT * FROM analytics.experiment
                                   WHERE status = 'running' AND end_date < %s""", (as_of,)):
-        summary = analyze(conn, exp)
-        execute(conn, "UPDATE analytics.experiment SET status = 'done', result_summary = %s WHERE id = %s",
-                (summary, exp["id"]))
+        if exp.get("design_code"):  # B7 block designs: Bayesian, with trend, carryover, travel
+            from healthtracker.stats.designs import finish_block_experiment
+
+            summary, result = finish_block_experiment(conn, exp)
+            execute(conn, "UPDATE analytics.experiment SET status = 'done', result_summary = %s, result = %s "
+                          "WHERE id = %s", (summary, json.dumps(to_jsonable(result)), exp["id"]))
+        else:
+            summary = analyze(conn, exp)
+            execute(conn, "UPDATE analytics.experiment SET status = 'done', result_summary = %s WHERE id = %s",
+                    (summary, exp["id"]))
         n += 1
     return n

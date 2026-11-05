@@ -692,6 +692,13 @@ def experiment_protocol(ctx: RuleContext, p: dict) -> RuleResult:
     for e, cond in todays:
         proto = e.get("protocol") or {}
         details["experiments"].append({"experiment_id": e["id"], "condition": cond})
+        if proto.get("conditions"):  # B7: both conditions are actions on their days
+            c = proto["conditions"].get(cond)
+            if c:
+                outcome = f"{proto['outcome']}@{proto.get('outcome_lag', 1)}" if proto.get("outcome") else None
+                actions.append(Action(f"Experiment day ({c['label']}): {c['action_text']}", c["metric"],
+                                      c["comparator"], c["target_value"], ctx.date, outcome_metric=outcome))
+            continue
         if cond == "treatment" and proto.get("metric"):
             outcome = f"{proto['outcome']}@{proto.get('outcome_lag', 1)}" if proto.get("outcome") else None
             actions.append(Action(f"Experiment day: {proto['action_text']}", proto["metric"],
