@@ -76,6 +76,14 @@ def _sessions_step(since: date | None) -> int:
         return build_session_features(conn, since)
 
 
+def _readiness_step(d: date) -> int:
+    """G1 v1 (shadow): after the medication messages, since a flagged day lowers the score."""
+    from healthtracker.features.readiness import build_readiness
+
+    with connect() as conn:
+        return build_readiness(conn, d, days=14)
+
+
 def _fitness_step(d: date) -> int:
     from healthtracker.features.fitness import build_fitness
 
@@ -160,6 +168,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
     run_step("nightly", "rules", rules, report)
     run_step("nightly", "recommendation", lambda: state.get("rec", 0), report)
     run_step("nightly", "medication_messages", lambda: _medication_messages(d), report)
+    run_step("nightly", "readiness", lambda: _readiness_step(d), report)
 
     def llm() -> int:
         with connect() as conn:
@@ -260,4 +269,12 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
         return total
 
     run_step("backfill", "daily_loop", days, report)
+
+    def readiness() -> int:
+        from healthtracker.features.readiness import build_readiness
+
+        with connect() as conn:
+            return build_readiness(conn, end, days=(end - start).days + 1)
+
+    run_step("backfill", "readiness", readiness, report)
     return report
