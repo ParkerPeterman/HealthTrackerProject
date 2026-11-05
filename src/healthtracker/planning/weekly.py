@@ -37,6 +37,10 @@ Code decides every session, day, and size; the LLM is not involved.
    from the planned sessions; easy runs lengthen toward 150 minutes inside the caps (not in a
    deload or after recovery flags); a sleep-regularity note when the SRI is low; the protein
    target in grams a day.
+   Taper (F1, in season and pre-season): a week with a tournament (two or more games in a day,
+   or games on back-to-back days) keeps its key sessions but no hard session in the
+   `taper_days` (3) before it, shortens the rest by `taper_factor` (0.7), and aims the load at
+   the chronic load times that factor without lengthening anything back.
 5. Return to ultimate (F7): in pre-season, weeks 1-2 are accelerations only, weeks 3-4 add
    max-velocity sprinting and cutting, week 5 on everything (the library's `return_stage`,
    checked per day); sprint metres are scaled 0.5 / 0.75 / 1.0 before the ramp caps.
@@ -92,13 +96,13 @@ from healthtracker.planning.templates import GOAL_ROLES, ROTATIONS, TEMPLATES, S
 from healthtracker.profile import load_profile
 from healthtracker.rules.context import load_injuries, load_params
 
-PLANNER_VERSION = "f7.1"
+PLANNER_VERSION = "f7.2"
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAY_WORDS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 LOWER = {"quads", "hamstrings", "glutes", "calves", "adductors"}
 DEFAULTS = {"progression_factor": 1.05, "caution_factor": 0.85, "deload_factor": 0.65, "total_allowance": 100,
             "min_sprint_m": 40, "min_plyo_contacts": 10, "strict_spacing": 0, "deload_every": 4,
-            "progress_key_pct": 100}
+            "progress_key_pct": 100, "taper_factor": 0.7, "taper_days": 3}
 CAUTION_RULES = ("RECOV_ILLNESS_FLAG", "RECOV_HIGH_LOAD_LOW_HRV", "INJ_RETURN_TO_PLAY")
 VO2_CODES = {1: "vo2_3x3", 2: "vo2_4x3", 3: "vo2_3x4", 4: "vo2_4x4"}
 
@@ -143,6 +147,24 @@ class PlanInputs:
     @property
     def deloading(self) -> bool:
         return self.phase == "deload" or self.deload_week
+
+    @property
+    def tournaments(self) -> list[date]:
+        """Tournament days this week: two or more games in a day, or games on back-to-back days."""
+        if self.phase in ("deload", "transition"):
+            return []
+        per: dict[date, int] = {}
+        for s in self.fixed:
+            if s["session_type"] == "game":
+                per[s["date"]] = per.get(s["date"], 0) + 1
+        sunday = self.week_start + timedelta(days=6)
+        days = {d for d, n in per.items() if n >= 2 or (d + timedelta(days=1)) in per
+                or (d - timedelta(days=1)) in per or (d == sunday and self.next_game)}
+        return sorted(days)
+
+    @property
+    def taper(self) -> bool:
+        return bool(self.tournaments)
 
     @property
     def return_stage(self) -> int | None:
@@ -286,6 +308,10 @@ class Week:
         near = self.near_game(i)
         if near and (e["hard"] or e["plan_type"] == "moderate" or is_lower_strength(e, self.meta)):
             out.append(near)
+        # F1 taper: nothing hard in the last few days before a tournament.
+        days = int(self.inp.p("taper_days"))
+        if e["hard"] and any(self.dates[i] < t <= self.dates[i] + timedelta(days=days) for t in self.inp.tournaments):
+            out.append(f"taper: no hard sessions in the {days} days before the tournament")
         # D5: a session's recovery cost (a prior until learned) sets how many days it needs before a game.
         need = -(-int(e.get("recovery_hours") or 0) // 24)
         if need > 1 and any(self.game(i + k) for k in range(1, need)):
@@ -443,22 +469,22 @@ def return_scale(week: Week, stage: int) -> None:
                            f"{'half' if k == 0.5 else 'three quarters'} of the sprint volume ({p.sprint_m} m)")
 
 
-def deload_scale(week: Week) -> None:
-    """A scheduled deload week (F5): non-key sessions shorter, fewer sprint and jump reps."""
-    k = week.inp.p("deload_factor")
+def deload_scale(week: Week, k: float | None = None, label: str = "deload week") -> None:
+    """A scheduled deload week (F5), or a taper (F1): non-key sessions shorter, fewer sprint and jump reps."""
+    k = week.inp.p("deload_factor") if k is None else k
     for p in week.placed:
         if not p.slot.key:
             new = max(10, 5 * round(p.minutes * k / 5))
             if new < p.minutes:
                 p.minutes = new
-                p.notes.append(f"deload week: {new} min")
+                p.notes.append(f"{label}: {new} min")
         for attr, floor, unit in (("sprint_m", week.inp.p("min_sprint_m"), "m of sprinting"),
                                   ("plyo", week.inp.p("min_plyo_contacts"), "jump contacts")):
             v = getattr(p, attr)
             new = min(v, max(int(floor), int(5 * round(v * k / 5))))
             if v and new < v:
                 setattr(p, attr, new)
-                p.notes.append(f"deload week: {new} {unit}")
+                p.notes.append(f"{label}: {new} {unit}")
 
 
 def deload_trim(week: Week, target: float | None) -> None:
@@ -523,11 +549,14 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
         return_scale(week, stage)
     if inp.deload_week:
         deload_scale(week)
+    elif inp.taper:
+        deload_scale(week, inp.p("taper_factor"), "taper for the tournament")
     apply_caps(week, room)
-    fit_target(week, target, room, grow=not inp.deload_week)
+    fit_target(week, target, room, grow=not (inp.deload_week or inp.taper))
     if inp.deloading:
         deload_trim(week, target)
-    skip = "a deload week" if inp.deloading else "recent recovery flags" if inp.caution else None
+    skip = ("a deload week" if inp.deloading else "a taper week" if inp.taper
+            else "recent recovery flags" if inp.caution else None)
     health = plan_health(week, room, extend=skip is None, skip_why=skip)
 
     sessions = []
@@ -571,6 +600,7 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
         "return_to_play": return_block(inp, week, stage, weeks),
         "weather": weather, "attribution": ATTRIBUTION if inp.weather else None,
         "levels": {"vo2": list(inp.vo2_level), "copenhagen": list(inp.copenhagen)},
+        "taper": {"tournaments": [str(d) for d in inp.tournaments]} if inp.taper else None,
         "progression": {"phase_week": inp.phase_week, "deload_week": inp.deload_week,
                         "deload_every": int(inp.p("deload_every")), "progress": inp.progress[0],
                         "why": inp.progress[1]},
@@ -636,6 +666,9 @@ def load_target(inp: PlanInputs) -> tuple[float | None, str]:
         n = int(inp.p("deload_every"))
         nth = f"{n}{'nd' if n == 2 else 'rd' if n == 3 else 'th'}"
         return inp.chronic_week * inp.p("deload_factor"), f"a deload week: every {nth} week of a phase is lighter"
+    if inp.taper:
+        days = ", ".join(f"{d:%a}" for d in inp.tournaments)
+        return inp.chronic_week * inp.p("taper_factor"), f"a taper week for the tournament ({days})"
     if inp.caution:
         return inp.chronic_week * inp.p("caution_factor"), f"recent recovery flags ({', '.join(inp.caution)})"
     if not inp.progress[0]:
@@ -767,7 +800,7 @@ def render_plan(plan: dict) -> str:
     caps, tot = plan["caps"], plan["planned"]
     prog = plan.get("progression") or {}
     week_no = f", week {prog['phase_week']}" if prog.get("phase_week") else ""
-    deload = "; a deload week" if prog.get("deload_week") else ""
+    deload = "; a deload week" if prog.get("deload_week") else "; a taper week" if plan.get("taper") else ""
     lines = [f"**Plan for the week of {plan['week_start']:%b %d}** ({phase} phase{week_no}{deload})", ""]
     if plan["target_load"] is not None:
         lines.append(f"Target load {plan['target_load']} (your weekly chronic load is {plan['chronic_weekly_load']}; "
@@ -831,7 +864,7 @@ def write_week_plan(conn: psycopg.Connection, week_start: date) -> int:
                          (week_start,))["v"] or 0) + 1
     summary = {k: plan[k] for k in ("target_load", "reason", "chronic_weekly_load", "caps", "last_week", "planned",
                                     "fixed_load", "planned_load", "intensity", "games", "dropped", "levels", "names",
-                                    "weather", "attribution", "progression", "health", "return_to_play")}
+                                    "weather", "attribution", "progression", "health", "return_to_play", "taper")}
     plan_id = insert(conn, "analytics.week_plan", {
         "week_start": week_start, "version": version, "phase": plan["phase"], "inputs": plan["inputs"],
         "summary": to_jsonable(summary), "plan_hash": h})
