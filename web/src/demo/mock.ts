@@ -39,7 +39,7 @@ const water: { id: number; ts: string; ml: number }[] = [
 let profile: Profile = {
   birth_date: "1996-04-12", sex: "male", height_cm: 183, timezone: "America/Chicago", ref_hr_bpm: 145,
   display_units: "imperial",
-  training_prefs: { runs_per_week: 3, lifts_per_week: 2, min_rest_days: 1, long_run_day: "sun", generate_plan: true },
+  training_prefs: { generate_plan: true, main_days: ["mon", "tue", "wed", "thu"], day_minutes: 120, bonus_days: true, bonus_minutes: 45 },
   notes: null,
 };
 
@@ -227,7 +227,11 @@ const planned: Planned[] = [
 ];
 Object.assign(planned[3], { session_code: "strength_upper", addons: ["shoulder_bands"], notes: "Upper-body push and pull",
   addon_names: ["Rotator cuff and scapular work"] });
-Object.assign(planned[6], { session_code: "vo2_3x3", notes: "VO2 intervals 3 x 3 min", planned_rpe: 8, planned_duration_min: 45 });
+Object.assign(planned[6], { session_code: "vo2_3x3", notes: "VO2 intervals 3 x 3 min", planned_rpe: 8, planned_duration_min: 40, key: true,
+  reason: { slot: "vo2", phase: "base", key: true, why: "One VO2 session a week, building from 3 x 3 to 4 x 4",
+    day: "as planned", changes: [], swaps: [], progression: "VO2 level 1 of 4: starting at 3 x 3" } });
+Object.assign(planned[3], { reason: { slot: "upper", phase: "base", key: false, day: "as planned", changes: [], swaps: [],
+  why: "Upper-body push and pull, plus rotator cuff and scapular work" } });
 
 // ------------------------------------------------------------------ body
 const injuries: Injury[] = [

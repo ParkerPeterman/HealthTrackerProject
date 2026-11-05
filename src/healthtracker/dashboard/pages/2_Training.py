@@ -117,8 +117,8 @@ with right:
         c.show(fig, vol, key="volume")
 
 st.subheader("Plan vs actual")
-plan = c.query("""SELECT p.date, p.sport, p.session_type, p.planned_duration_min AS planned_min,
-                         p.planned_rpe, p.status, p.origin,
+plan = c.query("""SELECT p.date, coalesce(p.notes, p.sport) AS session, p.session_type,
+                         p.planned_duration_min AS planned_min, p.planned_rpe, p.status, p.origin, p.optional,
                          round(w.duration_s / 60.0) AS actual_min, w.rpe AS actual_rpe
                   FROM core.planned_session p LEFT JOIN core.workout w ON w.id = p.linked_workout_id
                   WHERE p.date BETWEEN %s AND %s + 14 ORDER BY p.date DESC""", (end - pd.Timedelta(days=28), end))
@@ -126,3 +126,11 @@ if plan.empty:
     c.empty_state("No planned sessions yet. Add games in the app; the weekly job generates the rest.")
 else:
     st.dataframe(plan, hide_index=True, width="stretch")
+
+graded = c.query("""SELECT week_start, version, phase, adherence_pct, key_done, key_planned, load_planned, load_actual,
+                           response->>'hrv_status' AS hrv_end_of_week, response->>'soreness_avg' AS soreness
+                    FROM analytics.week_plan WHERE superseded_at IS NULL AND week_start >= %s
+                    ORDER BY week_start DESC""", (end - pd.Timedelta(days=84),))
+if not graded.empty:
+    st.caption("Weekly plans (F3): adherence counts the non-optional sessions matched to a workout.")
+    st.dataframe(graded, hide_index=True, width="stretch")

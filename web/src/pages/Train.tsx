@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, PHASE_LABEL, type IntensityWeek, type Planned, type SeasonData, type Workout } from "../api";
+import { api, PHASE_LABEL, type IntensityWeek, type Planned, type PlanReason, type SeasonData, type Workout } from "../api";
 import { cap, Chips, Empty, Icon, Scale, sessionLook, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { addDays, dayLabel, isoDate, toLocalInput } from "../dates";
 import { fmtDuration, showDistance, showPace, distUnit } from "../units";
@@ -91,7 +91,7 @@ export default function Train() {
                     <div className="title">{cap(p.notes || p.sport)}</div>
                     <div className="meta">
                       {[p.session_type, p.planned_duration_min && `${p.planned_duration_min} min`, p.planned_rpe && `RPE ${p.planned_rpe}`,
-                        p.addon_names?.length ? `+ ${p.addon_names.join(", ")}` : null,
+                        p.addon_names?.length ? `+ ${p.addon_names.join(", ")}` : null, p.optional ? "optional" : null,
                         p.origin === "generated" ? "auto-planned" : null, p.status !== "planned" ? p.status : null]
                         .filter(Boolean).join(" · ")}
                     </div>
@@ -288,6 +288,7 @@ function PlanSheet({ planned, onClose }: { planned?: Planned; onClose: () => voi
         {planned?.origin === "generated" && (
           <p className="tiny muted" style={{ margin: 0 }}>Auto-planned by the weekly job. Editing it makes it yours, so it won't be regenerated.</p>
         )}
+        {planned?.reason && <PlanReasonView reason={planned.reason} optional={planned.optional} />}
         {planned?.session_code && p.date && (
           <div className="card tight"><LibraryDetail code={planned.session_code} date={p.date} addons={planned.addons} /></div>
         )}
@@ -334,5 +335,19 @@ function PlanSheet({ planned, onClose }: { planned?: Planned; onClose: () => voi
         </div>
       </div>
     </Sheet>
+  );
+}
+
+/** F3: the planner's structured reason for a session. */
+export function PlanReasonView({ reason, optional }: { reason: PlanReason; optional?: boolean }) {
+  const lines = [reason.progression, reason.copenhagen, reason.day !== "as planned" ? cap(reason.day) : null,
+    ...reason.changes.map(cap)].filter(Boolean) as string[];
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <div className="small">
+        <span style={{ fontWeight: 550 }}>{reason.key ? "Key session" : optional ? "Optional" : "Why"}: </span>{reason.why}.
+      </div>
+      {lines.map((l) => <div key={l} className="tiny muted">{l}.</div>)}
+    </div>
   );
 }

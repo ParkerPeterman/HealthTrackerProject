@@ -137,7 +137,7 @@ def upcoming(ctx: RuleContext) -> list[dict]:
             continue
         out.append(_drop_empty({
             "day": "today" if s["date"] == ctx.date else f"{s['date']:%a %m-%d}",
-            "session": f"{s['session_type']} {s['sport']}".strip(),
+            "session": s["notes"] if s.get("session_code") and s.get("notes") else f"{s['session_type']} {s['sport']}".strip(),
             "minutes": s.get("planned_duration_min"), "rpe": s.get("planned_rpe"),
             "focus": s.get("focus_muscles") or None,
         }))

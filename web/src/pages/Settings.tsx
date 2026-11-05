@@ -62,13 +62,26 @@ export default function Settings() {
 
       <section className="card stack">
         <h3>Training plan</h3>
-        <label className="row small"><input type="checkbox" checked={prefs.generate_plan} onChange={(e) => setPrefs({ generate_plan: e.target.checked })} /> Auto-plan each week around my games</label>
-        <div className="grid2">
-          <label className="field">Runs / week<Stepper value={prefs.runs_per_week} onChange={(v) => setPrefs({ runs_per_week: v })} min={0} max={7} label="runs per week" /></label>
-          <label className="field">Lifts / week<Stepper value={prefs.lifts_per_week} onChange={(v) => setPrefs({ lifts_per_week: v })} min={0} max={5} label="lifts per week" /></label>
-          <label className="field">Rest days (min)<Stepper value={prefs.min_rest_days} onChange={(v) => setPrefs({ min_rest_days: v })} min={0} max={3} label="rest days" /></label>
+        <label className="row small"><input type="checkbox" checked={prefs.generate_plan} onChange={(e) => setPrefs({ generate_plan: e.target.checked })} /> Auto-plan each week from the season phase</label>
+        <div className="field">Main training days
+          <div className="row wrap" role="group" aria-label="Main training days">
+            {DAYS.map((d) => {
+              const on = (prefs.main_days ?? []).includes(d);
+              return (
+                <button key={d} type="button" aria-pressed={on} className={`chip${on ? " on" : ""}`}
+                        onClick={() => setPrefs({ main_days: on ? prefs.main_days.filter((x) => x !== d) : DAYS.filter((x) => x === d || prefs.main_days.includes(x)) })}>
+                  {d}
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <label className="field">Long run day<Chips options={DAYS} value={prefs.long_run_day as (typeof DAYS)[number]} onChange={(d) => setPrefs({ long_run_day: d })} /></label>
+        <div className="grid2">
+          <label className="field">Minutes a main day<Stepper value={prefs.day_minutes} onChange={(v) => setPrefs({ day_minutes: v })} step={15} min={30} max={240} label="minutes per main day" /></label>
+          <label className="field">Minutes on other days<Stepper value={prefs.bonus_minutes} onChange={(v) => setPrefs({ bonus_minutes: v })} step={5} min={10} max={90} label="minutes on other days" /></label>
+        </div>
+        <label className="row small"><input type="checkbox" checked={prefs.bonus_days} onChange={(e) => setPrefs({ bonus_days: e.target.checked })} /> Suggest optional short sessions on the other days (travel days)</label>
+        <p className="tiny muted" style={{ margin: 0 }}>The plan's core sessions all fit on the main days; the others are bonus slots for short, equipment-light sessions.</p>
       </section>
       <button className="btn primary" onClick={saveProfile}>Save profile</button>
 

@@ -11,11 +11,12 @@ import psycopg
 from healthtracker.db import fetch_one
 
 DEFAULT_PREFS = {
-    "runs_per_week": 3,
-    "lifts_per_week": 2,
-    "min_rest_days": 1,
-    "long_run_day": "sun",
     "generate_plan": True,
+    # F3 availability: reliable main days, minutes on each, and optional travel-day bonus slots
+    "main_days": ["mon", "tue", "wed", "thu"],
+    "day_minutes": 120,
+    "bonus_days": True,
+    "bonus_minutes": 45,
 }
 
 

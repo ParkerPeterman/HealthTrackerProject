@@ -110,8 +110,10 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
     run_step("nightly", "baselines", lambda: _baselines_step(d), report)
 
     def grade() -> int:
+        from healthtracker.planning.weekly import link_planned
+
         with connect() as conn:
-            return grade_actions(conn, d)
+            return grade_actions(conn, d) + link_planned(conn, d - timedelta(days=7), d)
 
     run_step("nightly", "grade", grade, report)
 
@@ -133,7 +135,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
 
 
 def weekly(d: date | None = None) -> JobReport:
-    from healthtracker.planning.weekly import write_week_plan
+    from healthtracker.planning.weekly import grade_week_plan, write_week_plan
 
     d = d or local_today()
     report = JobReport("weekly")
@@ -150,6 +152,8 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "experiments", step(update_experiments), report)
     run_step("weekly", "goal_check", step(run_goal_check), report)
     next_monday = d + timedelta(days=(7 - d.weekday()) % 7 or 7)
+    run_step("weekly", "plan_grade", step(lambda conn, _d: grade_week_plan(conn, next_monday - timedelta(days=7))),
+             report)
     run_step("weekly", "week_plan", step(lambda conn, _d: write_week_plan(conn, next_monday)), report)
     return report
 
@@ -185,7 +189,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
     run_step("backfill", "baselines", lambda: _baselines_step(end, start - timedelta(days=60)), report)
 
     def days() -> int:
-        from healthtracker.planning.weekly import write_week_plan
+        from healthtracker.planning.weekly import grade_week_plan, write_week_plan
 
         total, d = 0, start
         llm_from = end - timedelta(days=llm_days - 1) if llm_days > 0 else end + timedelta(days=1)
@@ -203,6 +207,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                     run_promotion(conn, d)
                     update_experiments(conn, d)
                     run_goal_check(conn, d)
+                    grade_week_plan(conn, d - timedelta(days=6))
                     write_week_plan(conn, d + timedelta(days=1))
             d += timedelta(days=1)
         return total

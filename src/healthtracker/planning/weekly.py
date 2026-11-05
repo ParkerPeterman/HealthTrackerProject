@@ -1,240 +1,728 @@
-"""Weekly plan generator: next week's sessions around fixed games, by rules.
+"""Weekly plan generator (F3): next week's sessions from the season phase's template.
 
-The plan targets a weekly load from my own chronic load, nudged up only when
-recovery looks good and capped by the load-ramp parameter. Games and manual
-sessions are fixed; generated sessions fill the rest:
-  * the day before a game is easy (never lower-body strength)
-  * the day after a game is rest or easy
-  * strength sessions are at least two days apart, split lower/upper
-  * at most one quality run a week, and none in a two-game week
-  * active injury restrictions remove or cap the matching sessions
-Regenerating replaces only generated sessions that are still 'planned'.
+Code decides every session, day, and size; the LLM is not involved.
+
+1. Template. The season phase (F1) picks a template (planning/templates.py) of library
+   sessions (F2) and the days they prefer. Main days are Monday to Thursday by default;
+   Friday to Sunday are optional bonus slots for short, equipment-light sessions, so the
+   plan works with the main days alone. Tokens resolve to this week's VO2 and Copenhagen
+   levels and the sprint rotation.
+2. Placement, greedy, key sessions first:
+   * games and my own planned sessions stay fixed; nothing new goes on a game day
+   * the days before and after a game are easy: no hard sessions, no lower-body strength,
+     so quality sessions land at least 48 hours before a game
+   * hard days are spaced. Two hard endurance days, or two hard neuromuscular days (sprints,
+     jumps, heavy legs), are never back to back, and sprints never follow a hard endurance
+     day; a hard endurance day may follow a sprint day. (strict_spacing = 1 keeps every hard
+     day apart, which leaves room for at most two in four days.) A game counts as both.
+   * at most one run a day, lower-body strength never on consecutive days, and the day's
+     minutes within what I have
+   * the library's checks for the day: phase, recent hamstring or groin tags, sore
+     shoulders, a below-band HRV (first two days only; the daily adjustment handles the
+     rest), and active injury restrictions
+3. Size. Durations start mid-range (low end in a deload). The ramp caps (D1/A6, from
+   planning/ramp.py: the same caps the rules flag) bound running load, sprint metres, and
+   jump contacts. Optional sessions go first, then non-key sessions shrink or drop; a sprint
+   session too small to matter becomes sprint technique. Total internal load aims at my
+   chronic load times a factor (higher when recovery is normal, lower after recovery flags
+   or in a deload) and never exceeds its own cap. The planned easy share of running is
+   reported against the D4 target.
+4. Output. Each session carries one structured reason. Plans are versioned: the same inputs
+   give the same plan and no new version. Each week's plan is graded afterwards on
+   adherence (planned sessions matched to workouts) and response.
+
+Weather swaps (A7) and the medication readiness flag (H4) plug in here once they exist.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import hashlib
+import json
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
 import psycopg
 
 from healthtracker.db import execute, fetch_all, fetch_one, insert, upsert
+from healthtracker.features.load import current_factor
 from healthtracker.jsonutil import to_jsonable
+from healthtracker.planning.library import (
+    DayState,
+    active_restrictions,
+    check,
+    copenhagen_level,
+    day_state,
+    exercise_meta,
+    exercises_for,
+    load_library,
+)
+from healthtracker.planning.prehab import shoulder_state
+from healthtracker.planning.ramp import ramp_cap
+from healthtracker.planning.season import phase_for
+from healthtracker.planning.templates import GOAL_ROLES, ROTATIONS, TEMPLATES, Slot
 from healthtracker.profile import load_profile
 from healthtracker.rules.context import load_injuries, load_params
 
+PLANNER_VERSION = "f3.1"
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-LOWER = ["quads", "hamstrings", "glutes", "calves"]
-UPPER = ["chest", "upper_back", "lats", "shoulders", "biceps", "triceps"]
-COLD_START_WEEKLY_LOAD = 1500.0
+DAY_WORDS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+LOWER = {"quads", "hamstrings", "glutes", "calves", "adductors"}
+DEFAULTS = {"progression_factor": 1.05, "caution_factor": 0.85, "deload_factor": 0.65, "total_allowance": 100,
+            "min_sprint_m": 40, "min_plyo_contacts": 10, "strict_spacing": 0}
+CAUTION_RULES = ("RECOV_ILLNESS_FLAG", "RECOV_HIGH_LOAD_LOW_HRV", "INJ_RETURN_TO_PLAY")
+VO2_CODES = {1: "vo2_3x3", 2: "vo2_4x3", 3: "vo2_3x4", 4: "vo2_4x4"}
 
 
+# ------------------------------------------------------------------ inputs
 @dataclass
-class Day:
-    date: date
-    fixed: list[dict] = field(default_factory=list)
-    tags: set[str] = field(default_factory=set)
-    sessions: list[dict] = field(default_factory=list)
+class PlanInputs:
+    """Everything the generator looks at. Built from the database by gather(), or by hand in tests."""
+
+    week_start: date
+    phase: str
+    states: dict[date, DayState]                 # library view of each day
+    fixed: list[dict] = field(default_factory=list)  # planned_session rows that stay (games, my own)
+    prev_game: bool = False                      # a game the Sunday before
+    next_game: bool = False                      # a game the Monday after
+    main_days: tuple[int, ...] = (0, 1, 2, 3)
+    bonus_days: tuple[int, ...] = (4, 5, 6)
+    day_minutes: int = 120
+    bonus_minutes: int = 45
+    last_week: dict[str, float | None] = field(default_factory=dict)  # run, sprint, plyo, total
+    chronic_week: float | None = None            # chronic internal load per week (uncoupled EWMA x 7)
+    caution: list[str] = field(default_factory=list)
+    vo2_level: tuple[int, str] = (1, "starting at 3 x 3")
+    copenhagen: tuple[int, str] = (1, "starting at level 1")
+    goals: list[str] = field(default_factory=list)
+    params: dict[str, dict[str, float]] = field(default_factory=dict)
+    factor: float = 0.4                          # TRIMP units per sRPE unit (A6 calibration)
+
+    def p(self, name: str) -> float:
+        return float(self.params.get("ANALYSIS_PLAN", {}).get(name, DEFAULTS[name]))
+
+
+# ------------------------------------------------------------------ placement
+@dataclass
+class Placed:
+    slot: Slot
+    entry: dict
+    day: int
+    minutes: int
+    addons: list[dict]
+    sprint_m: int
+    plyo: int
+    moved: str | None = None
+    notes: list[str] = field(default_factory=list)
+    swaps: list[str] = field(default_factory=list)
+    focus: list[str] | None = None
 
     @property
-    def free(self) -> bool:
-        return not self.fixed and not self.sessions and "rest" not in self.tags
+    def code(self) -> str:
+        return self.entry["code"]
+
+    @property
+    def run(self) -> bool:
+        return self.entry["sport"] == "run"
+
+    def load(self, factor: float) -> float:
+        main = self.minutes * self.entry["rpe"] * factor
+        return round(main + sum(_mid(a) * a["rpe"] * factor for a in self.addons), 1)
+
+    def run_load(self, factor: float) -> float:
+        main = self.minutes * self.entry["rpe"] * factor if self.run else 0.0
+        return round(main + sum(_mid(a) * a["rpe"] * factor for a in self.addons if a["sport"] == "run"), 1)
+
+    @property
+    def total_minutes(self) -> int:
+        return self.minutes + sum(_mid(a) for a in self.addons)
 
 
-def _session(d: date, sport: str, stype: str, minutes: int, rpe: int, focus=None, note="") -> dict:
-    return {"date": d, "sport": sport, "session_type": stype, "planned_duration_min": minutes,
-            "planned_rpe": rpe, "focus_muscles": focus, "status": "planned", "origin": "generated",
-            "notes": note or None}
+def _mid(e: dict) -> int:
+    """Middle of the duration range, on a 5-minute step inside the range."""
+    lo, hi = e["duration_min_lo"], e["duration_min_hi"]
+    return int(min(hi, max(lo, 5 * round((lo + hi) / 10))))
 
 
-def _load(s: dict) -> float:
-    return float((s.get("planned_rpe") or 0) * (s.get("planned_duration_min") or 0))
+def kind(entry: dict) -> str | None:
+    """Hard endurance (E) or hard neuromuscular (N); None for everything else."""
+    if not entry["hard"]:
+        return None
+    return "E" if entry["sport"] == "run" else "N"
 
 
-def plan_week(conn: psycopg.Connection, week_start: date) -> dict:
-    profile = load_profile(conn)
-    prefs = profile.prefs
-    params = load_params(conn)
-    ramp = params.get("TRAIN_LOAD_RAMP", {}).get("max_weekly_increase_pct", 10)
-    days = [Day(week_start + timedelta(days=i)) for i in range(7)]
-    by_date = {d.date: d for d in days}
+def is_lower_strength(entry: dict, meta: dict) -> bool:
+    return entry["category"] == "strength" and any(
+        meta.get(x["exercise"], {}).get("primary", set()) & LOWER for x in entry.get("exercises") or [])
 
-    fixed = fetch_all(conn, """SELECT * FROM core.planned_session WHERE date BETWEEN %s AND %s
-                               AND NOT (origin = 'generated' AND status = 'planned')""",
-                      (week_start, week_start + timedelta(days=6)))
-    for s in fixed:
-        if s["session_type"] == "game":
-            s.setdefault("planned_rpe", None)
-            s["planned_rpe"] = s["planned_rpe"] or 8
-            s["planned_duration_min"] = s["planned_duration_min"] or 90
-        by_date[s["date"]].fixed.append(s)
 
-    # Games shape the week. Also look one day past the week for a Monday game.
-    game_dates = {s["date"] for s in fixed if s["session_type"] == "game"}
-    nxt = fetch_one(conn, """SELECT 1 FROM core.planned_session WHERE date = %s AND session_type = 'game'
-                             AND status <> 'skipped'""", (week_start + timedelta(days=7),))
-    last_prev = fetch_one(conn, """SELECT 1 FROM core.planned_session WHERE date = %s AND session_type='game'""",
-                          (week_start - timedelta(days=1),))
-    for d in days:
-        if d.date in game_dates:
-            d.tags.add("game")
-        if d.date + timedelta(days=1) in game_dates or (d.date == days[-1].date and nxt):
-            d.tags.add("pre_game")
-        if d.date - timedelta(days=1) in game_dates or (d.date == week_start and last_prev):
-            d.tags.add("post_game")
+def fixed_kinds(s: dict) -> set[str]:
+    if s["session_type"] == "game":
+        return {"E", "N"}
+    if s["session_type"] == "hard":
+        return {"E"} if s["sport"] == "run" else {"N"}
+    return set()
 
-    # Recovery state and target load
-    f = fetch_one(conn, "SELECT * FROM analytics.daily_features WHERE date < %s ORDER BY date DESC LIMIT 1",
-                  (week_start,)) or {}
-    chronic = f.get("chronic_load_28d") or COLD_START_WEEKLY_LOAD
-    acwr = f.get("acwr")  # reported, not used for decisions
-    change = f.get("load_week_change_pct")
-    flags = fetch_all(conn, """SELECT rule_id FROM analytics.daily_flag WHERE fired
-                               AND date >= %s AND rule_id IN ('RECOV_ILLNESS_FLAG','RECOV_HIGH_LOAD_LOW_HRV',
-                               'INJ_RETURN_TO_PLAY') AND (details->>'eval_status') = 'evaluated'
-                               AND coalesce(severity, 0) >= 2""",
-                      (week_start - timedelta(days=4),))
-    caution = sorted({r["rule_id"] for r in flags})
-    if caution:
-        factor, why = 0.85, f"recent recovery flags ({', '.join(caution)})"
-    # D1: decisions use the week-over-week change and absolute chronic load; ACWR is descriptive only.
-    elif change is not None and change > ramp:
-        factor, why = 0.9, f"last week's load rose {change:.0f}%, more than the {ramp:.0f}% cap"
-    elif change is not None and change < -30:
-        factor, why = 1 + ramp / 100, f"last week's load fell {abs(change):.0f}%: building back within the cap"
-    else:
-        factor, why = 1.05, "recovery looks normal: small progression"
-    target = round(min(chronic * factor, chronic * (1 + ramp / 100)))
 
-    # Injury limits
-    run_cap, no_lower, no_run = 10, False, False
-    for inj in load_injuries(conn, week_start):
-        for r in inj["restrictions"]:
-            if r["end_date"] is not None and r["end_date"] < week_start:
+def spacing_ok(k: str | None, prev: set[str], same: set[str], nxt: set[str], strict: bool) -> bool:
+    if k is None:
+        return True
+    if same - {k}:
+        return False  # one kind of hard work a day
+    if strict:
+        return not prev and not nxt
+    # The only hard neighbours allowed: a sprint/strength day, then a hard endurance day.
+    return all(p == "N" and k == "E" for p in prev) and all(k == "N" and n == "E" for n in nxt)
+
+
+class Week:
+    def __init__(self, inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]):
+        self.inp, self.lib, self.meta = inp, lib, meta
+        self.dates = [inp.week_start + timedelta(days=i) for i in range(7)]
+        self.placed: list[Placed] = []
+        self.dropped: list[dict] = []
+        self.games = {s["date"] for s in inp.fixed if s["session_type"] == "game"}
+        self.strict = bool(inp.p("strict_spacing"))
+
+    # -- day facts
+    def game(self, i: int) -> bool:
+        if i < 0:
+            return self.inp.prev_game
+        if i > 6:
+            return self.inp.next_game
+        return self.dates[i] in self.games
+
+    def near_game(self, i: int) -> str | None:
+        if self.game(i + 1):
+            return "the day before a game"
+        if self.game(i - 1):
+            return "the day after a game"
+        return None
+
+    def kinds(self, i: int) -> set[str]:
+        if i < 0:
+            return {"E", "N"} if self.inp.prev_game else set()
+        if i > 6:
+            return {"E", "N"} if self.inp.next_game else set()
+        out = set().union(*[fixed_kinds(s) for s in self.inp.fixed if s["date"] == self.dates[i]])
+        return out | {k for p in self.placed if p.day == i and (k := kind(p.entry))}
+
+    def minutes(self, i: int) -> int:
+        fixed = sum(s.get("planned_duration_min") or 0 for s in self.inp.fixed
+                    if s["date"] == self.dates[i] and s["session_type"] != "game")
+        return fixed + sum(p.total_minutes for p in self.placed if p.day == i)
+
+    def budget(self, i: int, slot: Slot) -> int:
+        if i in self.inp.main_days:
+            return self.inp.day_minutes
+        return slot.budget or self.inp.bonus_minutes
+
+    def has_run(self, i: int) -> bool:
+        return any(p.day == i and p.run for p in self.placed) or any(
+            s["date"] == self.dates[i] and s["sport"] == "run" for s in self.inp.fixed)
+
+    def lower_strength(self, i: int) -> bool:
+        return any(p.day == i and is_lower_strength(p.entry, self.meta) for p in self.placed) or any(
+            s["date"] == self.dates[i] and s["session_type"] == "strength" and set(s.get("focus_muscles") or []) & LOWER
+            for s in self.inp.fixed)
+
+    def used(self, code: str) -> bool:
+        return any(p.code == code for p in self.placed)
+
+    # -- can this session go on this day?
+    def why_not(self, slot: Slot, e: dict, i: int, minutes: int) -> list[str]:
+        d = self.dates[i]
+        out = check(e, self.inp.states[d], self.meta)
+        if self.game(i):
+            return ["game day", *out]
+        bonus = i not in self.inp.main_days
+        if bonus and not e["travel_ok"]:
+            out.append("not a travel-day session")
+        near = self.near_game(i)
+        if near and (e["hard"] or e["plan_type"] == "moderate" or is_lower_strength(e, self.meta)):
+            out.append(near)
+        if not spacing_ok(kind(e), self.kinds(i - 1), self.kinds(i), self.kinds(i + 1), self.strict):
+            out.append("too close to another hard day")
+        if e["sport"] == "run" and self.has_run(i):
+            out.append("already a run that day")
+        if is_lower_strength(e, self.meta) and (self.lower_strength(i - 1) or self.lower_strength(i + 1)):
+            out.append("lower-body strength the day before or after")
+        if self.minutes(i) + minutes > self.budget(i, slot):
+            out.append(f"over the {self.budget(i, slot)} minutes that day")
+        if not slot.repeat and self.used(e["code"]):
+            out.append("already in the week")
+        return out
+
+    def day_order(self, slot: Slot) -> list[int]:
+        pref = self.slot_day(slot)
+        pool = list(self.inp.main_days) if pref in self.inp.main_days else list(self.inp.bonus_days)
+        if not slot.move:
+            return [pref]
+        return [pref] + sorted((i for i in pool if i != pref), key=lambda i: (abs(i - pref), i))
+
+    def slot_day(self, slot: Slot) -> int:
+        main, bonus = self.inp.main_days, self.inp.bonus_days
+        if slot.day < 4:
+            return main[min(slot.day, len(main) - 1)] if main else slot.day
+        return bonus[min(slot.day - 4, len(bonus) - 1)] if bonus else slot.day
+
+    def resolve(self, code: str) -> str:
+        if code == "{vo2}":
+            return VO2_CODES[self.inp.vo2_level[0]]
+        if code == "{copenhagen}":
+            return f"copenhagen_l{self.inp.copenhagen[0]}"
+        if code in ROTATIONS:
+            return ROTATIONS[code][self.inp.week_start.isocalendar().week % 2]
+        return code
+
+    def place(self, slot: Slot) -> None:
+        candidates = [self.lib[c] for c in map(self.resolve, slot.candidates) if c in self.lib]
+        days = self.day_order(slot)
+        tried: dict[str, list[str]] = {}
+        pairs = [(e, i) for e in candidates for i in days] if slot.move else [(e, i) for i in days for e in candidates]
+        deload = self.inp.phase == "deload"
+        for e, i in pairs:
+            minutes = e["duration_min_lo"] if deload else _mid(e)
+            addons = self.addons_for(slot, e, i)
+            reasons = self.why_not(slot, e, i, minutes + sum(_mid(a) for a in addons))
+            if reasons:
+                tried.setdefault(f"{e['code']}@{DAY_NAMES[i]}", reasons)
                 continue
-            if r["target_type"] == "activity" and r["activity"] in ("running", "sprinting"):
-                if r["max_rpe"] == 0 and r["activity"] == "running":
-                    no_run = True
-                elif r["max_rpe"] is not None:
-                    run_cap = min(run_cap, r["max_rpe"])
-            if r["target_type"] == "muscle_group" and r["muscle_group"] in LOWER and r["max_rpe"] == 0:
-                no_lower = True
-            if r["target_type"] == "movement_pattern" and r["movement_pattern"] in ("squat", "hinge", "lunge") \
-                    and r["max_rpe"] == 0:
-                no_lower = True
+            pref = self.slot_day(slot)
+            moved = None
+            if i != pref:
+                why = tried.get(f"{e['code']}@{DAY_NAMES[pref]}") or tried.get(f"{candidates[0]['code']}@{DAY_NAMES[pref]}")
+                moved = f"moved from {DAY_WORDS[pref]}" + (f": {why[0]}" if why else "")
+            exercises, swaps = exercises_for(e, self.inp.states[self.dates[i]], self.meta)
+            focus = sorted(set().union(*[self.meta.get(x["exercise"], {}).get("primary", set()) for x in exercises])) \
+                if e["category"] == "strength" else None
+            p = Placed(slot, e, i, minutes, addons, e["sprint_m"], e["plyo_contacts"], moved=moved, swaps=swaps,
+                       focus=focus or None)
+            if e["code"] != self.resolve(slot.candidates[0]):
+                first = self.resolve(slot.candidates[0])
+                why = tried.get(f"{first}@{DAY_NAMES[i]}") or next((v for k, v in tried.items() if k.startswith(first)), [])
+                p.notes.append(f"instead of {self.lib[first]['name'] if first in self.lib else first}"
+                               + (f": {why[0]}" if why else ""))
+            self.placed.append(p)
+            return
+        self.dropped.append({"slot": slot.role, "optional": slot.optional,
+                             "reasons": {k: v for k, v in list(tried.items())[:6]}})
 
-    # Rest days: post-game first, then Monday
-    rest_needed = int(prefs["min_rest_days"])
-    for d in [d for d in days if "post_game" in d.tags and not d.fixed] + [days[0]]:
-        if rest_needed <= 0:
-            break
-        if d.free:
-            d.tags.add("rest")
-            d.sessions.append(_session(d.date, "rest", "rest", 0, 1, note="recovery day"))
-            rest_needed -= 1
+    def addons_for(self, slot: Slot, main: dict, i: int) -> list[dict]:
+        """Add-ons that fit the day: strides only after a run, nothing for the legs next to a game."""
+        out = []
+        state = self.inp.states[self.dates[i]]
+        for code in map(self.resolve, slot.addons):
+            a = self.lib.get(code)
+            if a is None or check(a, state, self.meta):
+                continue
+            if a["sport"] == "run" and main["sport"] != "run":
+                continue
+            lower = any(self.meta.get(x["exercise"], {}).get("primary", set()) & LOWER for x in a.get("exercises") or [])
+            if lower and self.near_game(i):
+                continue
+            out.append(a)
+        return out
 
-    # Strength: spaced >= 2 days, never the day before a game
-    lifts = int(prefs["lifts_per_week"])
-    lifts -= sum(1 for s in fixed if s["session_type"] == "strength")
-    focus_cycle = [None] if lifts == 1 else (["upper", "upper"] if no_lower else ["lower", "upper"])
-    last_lift = None
-    for d in days:
-        if lifts <= 0:
-            break
-        if not d.free or "pre_game" in d.tags or "game" in d.tags:
-            continue
-        if last_lift and (d.date - last_lift).days < 2:
-            continue
-        kind = focus_cycle[(int(prefs["lifts_per_week"]) - lifts) % len(focus_cycle)]
-        if kind == "lower" and "post_game" in d.tags:
-            kind = "upper"
-        focus = LOWER if kind == "lower" else UPPER if kind == "upper" else (UPPER if no_lower else LOWER + UPPER)
-        d.sessions.append(_session(d.date, "strength", "strength", 60, 6, focus,
-                                   f"{kind or 'full'}-body strength"))
-        last_lift = d.date
-        lifts -= 1
 
-    # Runs: long run on the preferred day, one quality run if the week allows
-    runs = 0 if no_run else int(prefs["runs_per_week"]) - sum(1 for s in fixed if s["sport"] == "run")
-    long_idx = DAY_NAMES.index(prefs.get("long_run_day", "sun"))
-    order = sorted(range(7), key=lambda i: (abs(i - long_idx), i))
-    long_day = next((days[i] for i in order if days[i].free and not days[i].tags & {"pre_game", "post_game"}), None)
-    planned_runs = []
-    if runs > 0 and long_day:
-        planned_runs.append((long_day, "moderate", 60, min(4, run_cap), "long run"))
-        long_day.tags.add("long")
-        runs -= 1
-    quality_ok = len(game_dates) < 2 and not caution and run_cap >= 7
-    for d in days:
-        if runs <= 0:
-            break
-        if d.fixed or "rest" in d.tags or "long" in d.tags or "game" in d.tags:
-            continue
-        has_lift = any(s["sport"] == "strength" for s in d.sessions)
-        if has_lift and "post_game" not in d.tags and len([x for x in days if x.free]) > runs:
-            continue
-        if quality_ok and not d.tags & {"pre_game", "post_game"} and not has_lift:
-            planned_runs.append((d, "hard", 45, 7, "quality run: intervals or tempo"))
-            quality_ok = False
-        else:
-            planned_runs.append((d, "easy", 35, min(3, run_cap), "easy aerobic run"))
-        runs -= 1
+# ------------------------------------------------------------------ sizing
+def trim_order(placed: list[Placed]) -> list[Placed]:
+    """What goes first when a cap binds: optional, then non-key, later in the template first."""
+    return sorted(placed, key=lambda p: (not p.slot.optional, p.slot.key, -p.day))
 
-    # Scale run minutes so the week lands near the target load
-    fixed_load = sum(_load(s) for d in days for s in d.fixed)
-    lift_load = sum(_load(s) for d in days for s in d.sessions if s["sport"] == "strength")
-    run_base = sum(m * r for _, _, m, r, _ in planned_runs)
-    scale = 1.0
-    if run_base > 0:
-        scale = max(0.7, min(1.3, (target - fixed_load - lift_load) / run_base))
-    for d, stype, minutes, rpe, note in planned_runs:
-        mins = int(round(minutes * scale / 5) * 5)
-        d.sessions.append(_session(d.date, "run", stype, max(20, mins), rpe, note=note))
 
-    sessions = [s for d in days for s in d.sessions]
-    planned_load = round(fixed_load + sum(_load(s) for s in sessions))
+def apply_caps(week: Week, room: dict[str, float]) -> None:
+    """Bring the generated sessions within the room the ramp caps leave after fixed sessions."""
+    inp, f = week.inp, week.inp.factor
+    min_sprint, min_plyo = inp.p("min_sprint_m"), inp.p("min_plyo_contacts")
+    technique = week.lib.get("speed_technique")
+
+    def drop(p: Placed, why: str) -> None:
+        week.placed.remove(p)
+        week.dropped.append({"slot": p.slot.role, "optional": p.slot.optional, "reasons": {p.code: [why]}})
+
+    # Sprint metres and jump contacts: fewer reps, then technique or nothing.
+    for attr, label, unit, floor in (("sprint_m", "sprint", "m of sprinting", min_sprint),
+                                     ("plyo", "jump", "contacts", min_plyo)):
+        cap = room["sprint" if attr == "sprint_m" else "plyo"]
+        for p in trim_order([p for p in week.placed if getattr(p, attr) > 0]):
+            over = sum(getattr(x, attr) for x in week.placed) - cap
+            if over <= 0:
+                break
+            new = int(max(0, getattr(p, attr) - over))
+            if new >= floor:
+                setattr(p, attr, new)
+                p.notes.append(f"{label} volume held to {new} {unit} by the weekly ramp cap")
+            elif attr == "sprint_m" and p.entry["category"] == "speed_jump" and technique:
+                p.entry, p.sprint_m, p.minutes = technique, 0, _mid(technique)
+                p.notes.append("sprint technique only: the weekly sprint ramp cap leaves too little for maximal sprints")
+            elif p.entry["category"] == "strength":
+                setattr(p, attr, 0)
+                p.notes.append("skip the box jumps this week (jump ramp cap)")
+            else:
+                drop(p, f"weekly {label} ramp cap")
+
+    # Running load, then total load: shorten (optional and non-key first), then drop.
+    for which, word in (("run", "running"), ("total", "load")):
+        def load(which: str = which) -> float:
+            return sum(x.run_load(f) if which == "run" else x.load(f) for x in week.placed)
+
+        def counts(x: Placed, which: str = which) -> bool:
+            return which == "total" or x.run_load(f) > 0
+
+        for p in trim_order([x for x in week.placed if counts(x)]):
+            before = p.minutes
+            while load() > room[which] and p.minutes - 5 >= p.entry["duration_min_lo"]:
+                p.minutes -= 5
+            if p.minutes < before:
+                p.notes.append(f"shortened to {p.minutes} min by the weekly {word} ramp cap")
+        for p in trim_order([x for x in week.placed if counts(x)]):
+            if load() <= room[which]:
+                break
+            drop(p, f"weekly {word} ramp cap")
+
+
+def fit_target(week: Week, target: float | None, room: dict[str, float]) -> None:
+    """Lengthen easy and steady sessions toward the target, or shorten them, within the caps' room."""
+    if target is None:
+        return
+    f = week.inp.factor
+    flexible = [p for p in trim_order(week.placed) if not p.entry["hard"] and p.entry["category"] in ("endurance",)]
+    total = lambda: sum(p.load(f) for p in week.placed)  # noqa: E731
+    run = lambda: sum(p.run_load(f) for p in week.placed)  # noqa: E731
+    if total() > target:
+        for p in flexible:
+            while total() > target and p.minutes - 5 >= p.entry["duration_min_lo"]:
+                p.minutes -= 5
+    else:
+        for p in reversed(flexible):
+            while p.minutes + 5 <= p.entry["duration_min_hi"]:
+                p.minutes += 5
+                if total() > min(target, room["total"]) or run() > room["run"] or \
+                        week.minutes(p.day) > week.budget(p.day, p.slot):
+                    p.minutes -= 5
+                    break
+
+
+# ------------------------------------------------------------------ the plan
+def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> dict:
+    week = Week(inp, lib, meta)
+    template = TEMPLATES.get(inp.phase, TEMPLATES["base"])
+    goal_keys = {GOAL_ROLES[g] for g in inp.goals if g in GOAL_ROLES}
+    slots = [replace(s, key=s.key or s.role in goal_keys) for s in template]
+    if not inp.bonus_days:
+        slots = [s for s in slots if s.day < 4]
+    order = sorted(range(len(slots)), key=lambda k: (slots[k].optional, not slots[k].key, k))
+    for k in order:
+        week.place(slots[k])
+
+    f = inp.factor
+    caps = plan_caps(inp)
+    fixed = {"run": sum(_fixed_load(s, f) for s in inp.fixed if s["sport"] == "run"),
+             "total": sum(_fixed_load(s, f) for s in inp.fixed), "sprint": 0.0, "plyo": 0.0}
+    room = {k: max(0.0, caps[k] - fixed[k]) for k in caps}
+    target, why = load_target(inp)
+    target = min(target - fixed["total"], room["total"]) if target is not None else None
+    apply_caps(week, room)
+    fit_target(week, target, room)
+
+    sessions = []
+    for p in sorted(week.placed, key=lambda p: (p.day, p.entry["day_order"], p.code)):
+        e = p.entry
+        level = (f" (level {e['level']})" if e["progression_group"] == "copenhagen" else "")
+        reason = {"slot": p.slot.role, "phase": inp.phase, "key": p.slot.key, "why": p.slot.why,
+                  "day": p.moved or "as planned", "changes": p.notes, "swaps": p.swaps}
+        if e["progression_group"] == "vo2":
+            reason["progression"] = f"VO2 level {inp.vo2_level[0]} of 4: {inp.vo2_level[1]}"
+        if any(a["progression_group"] == "copenhagen" for a in p.addons):
+            reason["copenhagen"] = f"Copenhagen level {inp.copenhagen[0]}: {inp.copenhagen[1]}"
+        sessions.append({
+            "date": week.dates[p.day], "sport": e["sport"], "session_type": e["plan_type"],
+            "planned_duration_min": p.minutes, "planned_rpe": e["rpe"], "focus_muscles": p.focus,
+            "status": "planned", "origin": "generated", "notes": e["name"] + level,
+            "session_code": e["code"], "addons": [a["code"] for a in p.addons] or None,
+            "optional": p.slot.optional, "key": p.slot.key, "reason": reason,
+            "planned_internal_load": p.load(f), "planned_sprint_m": p.sprint_m or None,
+            "planned_plyo_contacts": p.plyo or None,
+        })
+    totals = {"run": round(sum(p.run_load(f) for p in week.placed), 1),
+              "sprint_m": sum(p.sprint_m for p in week.placed), "plyo_contacts": sum(p.plyo for p in week.placed),
+              "total": round(sum(p.load(f) for p in week.placed), 1),
+              "minutes": sum(p.total_minutes for p in week.placed)}
+    run_min = sum(p.minutes for p in week.placed if p.run) + sum(
+        _mid(a) for p in week.placed for a in p.addons if a["sport"] == "run")
+    hard_min = sum(p.entry.get("hard_min") or 0 for p in week.placed if p.run)
+    easy_target = inp.params.get("TRAIN_INTENSITY_MIX", {}).get("easy_target_pct", 75)
     return {
-        "week_start": week_start, "target_load": target, "planned_load": planned_load,
-        "chronic_weekly_load": round(chronic), "acwr": acwr, "reason": why,
-        "games": sorted(str(g) for g in game_dates),
-        "limits": {"run_rpe_cap": run_cap if run_cap < 10 else None, "no_lower_strength": no_lower,
-                   "no_running": no_run},
-        "sessions": sessions, "fixed": [{k: s[k] for k in ("date", "sport", "session_type")} for s in fixed],
+        "week_start": inp.week_start, "phase": inp.phase, "planner_version": PLANNER_VERSION,
+        "target_load": round(target + fixed["total"]) if target is not None else None, "reason": why,
+        "chronic_weekly_load": round(inp.chronic_week) if inp.chronic_week is not None else None,
+        "caps": {k: round(v, 1) for k, v in caps.items()}, "last_week": inp.last_week,
+        "planned": totals, "fixed_load": {k: round(v, 1) for k, v in fixed.items()},
+        "planned_load": round(totals["total"] + fixed["total"]),
+        "intensity": {"run_minutes": run_min, "hard_minutes": hard_min,
+                      "easy_pct": round((run_min - hard_min) / run_min * 100, 1) if run_min else None,
+                      "easy_target_pct": easy_target},
+        "games": sorted(str(g) for g in week.games), "dropped": week.dropped,
+        "levels": {"vo2": list(inp.vo2_level), "copenhagen": list(inp.copenhagen)},
+        "names": {a["code"]: a["name"] for p in week.placed for a in p.addons},
+        "sessions": sessions,
+        "fixed": [{k: s.get(k) for k in ("date", "sport", "session_type", "planned_duration_min")} for s in inp.fixed],
     }
 
 
+def _fixed_load(s: dict, factor: float) -> float:
+    return (s.get("planned_rpe") or 0) * (s.get("planned_duration_min") or 0) * factor
+
+
+def plan_caps(inp: PlanInputs) -> dict[str, float]:
+    """The same ramp guards the rules use (D1, A6), applied to next week."""
+    run = inp.params.get("TRAIN_RUN_RAMP", {})
+    ch = inp.params.get("TRAIN_CHANNEL_RAMP", {})
+    total_pct = inp.params.get("TRAIN_LOAD_RAMP", {}).get("max_weekly_increase_pct", 10)
+    lw = inp.last_week
+    return {
+        "run": ramp_cap(lw.get("run"), run.get("max_weekly_increase_pct", 10), run.get("low_base_allowance", 60)),
+        "sprint": ramp_cap(lw.get("sprint"), ch.get("sprint_increase_pct", 15), ch.get("sprint_allowance_m", 100)),
+        "plyo": ramp_cap(lw.get("plyo"), ch.get("plyo_increase_pct", 15), ch.get("plyo_allowance", 40)),
+        "total": ramp_cap(lw.get("total"), total_pct, inp.p("total_allowance")),
+    }
+
+
+def load_target(inp: PlanInputs) -> tuple[float | None, str]:
+    if inp.chronic_week is None:
+        return None, "no chronic load yet: the ramp caps alone size the week"
+    if inp.phase == "deload":
+        return inp.chronic_week * inp.p("deload_factor"), "deload week: reduced volume"
+    if inp.caution:
+        return inp.chronic_week * inp.p("caution_factor"), f"recent recovery flags ({', '.join(inp.caution)})"
+    return inp.chronic_week * inp.p("progression_factor"), "recovery looks normal: small progression"
+
+
+# ------------------------------------------------------------------ from the database
+def vo2_level(conn: psycopg.Connection, week_start: date, phase: str, caution: bool) -> tuple[int, str]:
+    """Step up a VO2 level after a week whose VO2 sessions were all done, unless recovery flagged or deloading."""
+    rows = fetch_all(conn, """SELECT ps.date, ps.session_code, ps.status FROM core.planned_session ps
+                              JOIN analytics.week_plan wp ON wp.id = ps.plan_id
+                              WHERE wp.superseded_at IS NULL AND ps.session_code LIKE 'vo2\\_%%'
+                                AND ps.date BETWEEN %s AND %s ORDER BY ps.date""",
+                     (week_start - timedelta(days=28), week_start - timedelta(days=1)))
+    if not rows:
+        return 1, "starting at 3 x 3"
+    levels = {v: k for k, v in VO2_CODES.items()}
+    last = levels.get(rows[-1]["session_code"], 1)
+    recent = [r for r in rows if r["date"] >= week_start - timedelta(days=7)]
+    if not recent:
+        return last, "no VO2 session last week: repeating the level"
+    if phase == "deload":
+        return last, "holding the level through the deload"
+    if caution:
+        return last, "holding the level: recent recovery flags"
+    if all(r["status"] in ("done", "modified") for r in recent):
+        return (last + 1, "last week's VO2 sessions done") if last < 4 else (4, "at 4 x 4")
+    return last, "last week's VO2 session wasn't done: repeating it"
+
+
+def gather(conn: psycopg.Connection, week_start: date) -> PlanInputs:
+    profile = load_profile(conn)
+    prefs, tz = profile.prefs, profile.timezone
+    params = load_params(conn)
+    as_of = week_start - timedelta(days=1)
+    end = week_start + timedelta(days=6)
+    fixed = fetch_all(conn, """SELECT * FROM core.planned_session WHERE date BETWEEN %s AND %s AND status <> 'skipped'
+                               AND NOT (origin = 'generated' AND status = 'planned') ORDER BY date, id""",
+                      (week_start, end))
+    for s in fixed:
+        if s["session_type"] == "game":
+            s["planned_rpe"] = s["planned_rpe"] or 8
+            s["planned_duration_min"] = s["planned_duration_min"] or 90
+
+    def game_on(d: date) -> bool:
+        return bool(fetch_one(conn, """SELECT 1 FROM core.planned_session WHERE date = %s AND session_type = 'game'
+                                       AND status <> 'skipped'""", (d,)))
+
+    f = fetch_one(conn, "SELECT * FROM analytics.daily_features WHERE date <= %s ORDER BY date DESC LIMIT 1",
+                  (as_of,)) or {}
+    flags = fetch_all(conn, """SELECT DISTINCT rule_id FROM analytics.daily_flag WHERE fired AND date BETWEEN %s AND %s
+                               AND rule_id = ANY(%s) AND (details->>'eval_status') = 'evaluated'
+                               AND coalesce(severity, 0) >= 2 ORDER BY rule_id""",
+                      (week_start - timedelta(days=4), as_of, list(CAUTION_RULES)))
+    caution = [r["rule_id"] for r in flags]
+    injuries = load_injuries(conn, as_of)
+    base = day_state(conn, as_of, tz, injuries)
+    if base.hrv_status == "below":
+        caution.append("HRV below its band")
+    shoulder = shoulder_state(conn, as_of, tz)["flagged"]
+    states = {}
+    for i in range(7):
+        d = week_start + timedelta(days=i)
+        states[d] = DayState(date=d, phase=phase_for(conn, d), hrv_status=base.hrv_status if i < 2 else None,
+                             restrictions=active_restrictions(injuries, d), tag_days=base.tag_days,
+                             shoulder_flagged=shoulder)
+    phase = states[week_start].phase
+    main = tuple(DAY_NAMES.index(x) for x in prefs.get("main_days", DAY_NAMES[:4]) if x in DAY_NAMES)
+    bonus = tuple(i for i in range(7) if i not in main) if prefs.get("bonus_days", True) else ()
+    goals = [r["metric"] for r in fetch_all(conn, """SELECT DISTINCT metric FROM core.goal
+                                                     WHERE active AND metric IS NOT NULL ORDER BY metric""")]
+    return PlanInputs(
+        week_start=week_start, phase=phase, states=states, fixed=fixed,
+        prev_game=game_on(as_of), next_game=game_on(end + timedelta(days=1)),
+        main_days=main or (0, 1, 2, 3), bonus_days=bonus,
+        day_minutes=int(prefs.get("day_minutes", 120)), bonus_minutes=int(prefs.get("bonus_minutes", 45)),
+        last_week={"run": f.get("run_load_week"), "sprint": f.get("sprint_week"), "plyo": f.get("plyo_week"),
+                   "total": f.get("load_week")},
+        chronic_week=f["chronic_ewma"] * 7 if f.get("chronic_ewma") is not None else None,
+        caution=caution, vo2_level=vo2_level(conn, week_start, phase, bool(caution)),
+        copenhagen=copenhagen_level(conn, week_start, tz), goals=goals, params=params, factor=current_factor(conn))
+
+
+def inputs_snapshot(inp: PlanInputs) -> dict:
+    return to_jsonable({
+        "planner_version": PLANNER_VERSION, "phase": inp.phase, "main_days": inp.main_days, "bonus_days": inp.bonus_days,
+        "day_minutes": inp.day_minutes, "bonus_minutes": inp.bonus_minutes, "last_week": inp.last_week,
+        "chronic_week": inp.chronic_week, "caution": inp.caution, "vo2_level": inp.vo2_level,
+        "copenhagen": inp.copenhagen, "goals": inp.goals, "calibration_factor": inp.factor,
+        "prev_game": inp.prev_game, "next_game": inp.next_game,
+        "days": {str(d): s.as_dict() for d, s in inp.states.items()},
+        "fixed": [{k: s.get(k) for k in ("date", "sport", "session_type", "planned_duration_min", "origin")}
+                  for s in inp.fixed],
+        "params": {k: v for k, v in inp.params.items()
+                   if k in ("ANALYSIS_PLAN", "TRAIN_RUN_RAMP", "TRAIN_CHANNEL_RAMP", "TRAIN_LOAD_RAMP", "TRAIN_INTENSITY_MIX")},
+    })
+
+
+def plan_week(conn: psycopg.Connection, week_start: date) -> dict:
+    inp = gather(conn, week_start)
+    plan = build_plan(inp, load_library(conn), exercise_meta(conn))
+    plan["inputs"] = inputs_snapshot(inp)
+    return plan
+
+
+def plan_hash(plan: dict) -> str:
+    keep = {k: plan[k] for k in ("phase", "target_load", "caps", "planned", "dropped", "sessions", "inputs")}
+    return hashlib.sha256(json.dumps(to_jsonable(keep), sort_keys=True).encode()).hexdigest()[:16]
+
+
 def render_plan(plan: dict) -> str:
-    lines = [f"**Plan for the week of {plan['week_start']:%b %d}**", "",
-             f"Target load {plan['target_load']} (your 4-week weekly average is {plan['chronic_weekly_load']}; "
-             f"{plan['reason']}). Planned: {plan['planned_load']}.", ""]
+    phase = plan["phase"].replace("_", " ").replace("vo2", "VO2")
+    caps, tot = plan["caps"], plan["planned"]
+    lines = [f"**Plan for the week of {plan['week_start']:%b %d}** ({phase} phase)", ""]
+    if plan["target_load"] is not None:
+        lines.append(f"Target load {plan['target_load']} (your weekly chronic load is {plan['chronic_weekly_load']}; "
+                     f"{plan['reason']}). Planned: {plan['planned_load']}.")
+    else:
+        lines.append(f"{plan['reason'].capitalize()}. Planned load: {plan['planned_load']}.")
+    lines.append(f"Ramp caps: running load {round(caps['run'])} (planned {round(tot['run'] + plan['fixed_load']['run'])}), sprinting "
+                 f"{round(caps['sprint'])} m (planned {tot['sprint_m']}), jumps {round(caps['plyo'])} contacts "
+                 f"(planned {tot['plyo_contacts']}).")
+    lines.append("")
     by_day: dict[date, list[str]] = {}
     for s in plan["fixed"]:
-        by_day.setdefault(s["date"], []).append(f"{s['session_type']} {s['sport']}".replace("game ultimate", "ultimate game"))
+        label = "ultimate game" if s["session_type"] == "game" else f"{s['session_type']} {s['sport']}"
+        by_day.setdefault(s["date"], []).append(label)
+    names = plan.get("names", {})
     for s in plan["sessions"]:
-        if s["session_type"] == "rest":
-            by_day.setdefault(s["date"], []).append("rest")
-        else:
-            by_day.setdefault(s["date"], []).append(
-                f"{s['notes'] or s['sport']} ({s['planned_duration_min']} min, RPE {s['planned_rpe']})")
+        extra = f" + {', '.join(names.get(a, a.replace('_', ' ')) for a in s['addons'])}" if s["addons"] else ""
+        by_day.setdefault(s["date"], []).append(f"{s['notes']} ({s['planned_duration_min']} min){extra}")
+    optional = {s["date"] for s in plan["sessions"] if s["optional"]}
     for d in sorted(by_day):
-        lines.append(f"- {d:%a}: " + "; ".join(by_day[d]))
+        lines.append(f"- {d:%a}{' (optional)' if d in optional else ''}: " + "; ".join(by_day[d]))
+    left_out = [x["slot"].replace("_", " ") for x in plan["dropped"] if not x["optional"]]
+    if left_out:
+        lines += ["", f"Left out this week: {', '.join(left_out)} (see each session's reason)."]
     return "\n".join(lines)
 
 
 def write_week_plan(conn: psycopg.Connection, week_start: date) -> int:
-    profile = load_profile(conn)
-    if not profile.prefs.get("generate_plan", True):
+    """Generate next week's plan. A new version only when the plan changed."""
+    if not load_profile(conn).prefs.get("generate_plan", True):
         return 0
     plan = plan_week(conn, week_start)
+    h = plan_hash(plan)
+    cur = fetch_one(conn, "SELECT * FROM analytics.week_plan WHERE week_start = %s AND superseded_at IS NULL",
+                    (week_start,))
+    if cur and cur["plan_hash"] == h:
+        n = fetch_one(conn, "SELECT count(*) AS n FROM core.planned_session WHERE plan_id = %s", (cur["id"],))["n"]
+        if n == len(plan["sessions"]):
+            return n
+    if cur:
+        execute(conn, "UPDATE analytics.week_plan SET superseded_at = now() WHERE id = %s", (cur["id"],))
+    version = (fetch_one(conn, "SELECT max(version) AS v FROM analytics.week_plan WHERE week_start = %s",
+                         (week_start,))["v"] or 0) + 1
+    summary = {k: plan[k] for k in ("target_load", "reason", "chronic_weekly_load", "caps", "last_week", "planned",
+                                    "fixed_load", "planned_load", "intensity", "games", "dropped", "levels", "names")}
+    plan_id = insert(conn, "analytics.week_plan", {
+        "week_start": week_start, "version": version, "phase": plan["phase"], "inputs": plan["inputs"],
+        "summary": to_jsonable(summary), "plan_hash": h})
     execute(conn, """DELETE FROM core.planned_session WHERE origin = 'generated' AND status = 'planned'
                      AND date BETWEEN %s AND %s""", (week_start, week_start + timedelta(days=6)))
     text = render_plan(plan)
     rec_id = upsert(conn, "analytics.recommendation", [{
-        "date": week_start, "kind": "weekly", "input_snapshot": to_jsonable({"plan_inputs": {
-            k: plan[k] for k in ("chronic_weekly_load", "acwr", "games", "limits")}}),
-        "decisions": to_jsonable(plan), "rendered_text": text, "llm_model": None, "shown_to_user": True,
+        "date": week_start, "kind": "weekly", "input_snapshot": {"plan_inputs": plan["inputs"], "week_plan_id": plan_id},
+        "decisions": to_jsonable({k: v for k, v in plan.items() if k != "inputs"}), "rendered_text": text,
+        "llm_model": None, "shown_to_user": True,
     }], conflict=["date", "kind"], update=["input_snapshot", "decisions", "rendered_text", "shown_to_user"],
         returning="id")[0]
     for s in plan["sessions"]:
-        insert(conn, "core.planned_session", {**s, "recommendation_id": rec_id}, returning=None)
+        insert(conn, "core.planned_session", {**s, "recommendation_id": rec_id, "plan_id": plan_id}, returning=None)
     return len(plan["sessions"])
+
+
+# ------------------------------------------------------------------ grading
+# Workout sports that complete a planned session: exact matches first, then the fallbacks
+# (sprints recorded on the watch arrive as runs).
+SPORT_MATCH = {"run": {"run", "treadmill", "trail_run"}, "speed": {"speed", "sprints", "plyometrics"},
+               "strength": {"strength"}, "throwing": {"throwing", "ultimate"}}
+SPORT_FALLBACK = {"speed": {"run"}}
+
+
+def link_planned(conn: psycopg.Connection, start: date, end: date) -> int:
+    """Mark generated sessions done when a matching workout exists (same day, compatible sport)."""
+    tz = load_profile(conn).timezone
+    n = 0
+    for table in (SPORT_MATCH, SPORT_FALLBACK):
+        planned = fetch_all(conn, """SELECT * FROM core.planned_session WHERE origin = 'generated' AND status = 'planned'
+                                     AND linked_workout_id IS NULL AND date BETWEEN %s AND %s ORDER BY date, id""",
+                            (start, end))
+        for s in planned:
+            sports = table.get(s["sport"])
+            if not sports:
+                continue
+            w = fetch_one(conn, """SELECT w.id FROM core.v_workout w WHERE (w.start_ts AT TIME ZONE %s)::date = %s
+                                   AND w.sport = ANY(%s) AND NOT w.is_game
+                                   AND NOT EXISTS (SELECT 1 FROM core.planned_session p WHERE p.linked_workout_id = w.id)
+                                   ORDER BY w.start_ts LIMIT 1""", (tz, s["date"], sorted(sports)))
+            if w:
+                n += execute(conn, "UPDATE core.planned_session SET status = 'done', linked_workout_id = %s "
+                                   "WHERE id = %s", (w["id"], s["id"]))
+    return n
+
+
+def grade_week_plan(conn: psycopg.Connection, week_start: date) -> int:
+    """After the week: adherence to the current plan version and how recovery responded."""
+    plan = fetch_one(conn, "SELECT * FROM analytics.week_plan WHERE week_start = %s AND superseded_at IS NULL",
+                     (week_start,))
+    if not plan:
+        return 0
+    end = week_start + timedelta(days=6)
+    link_planned(conn, week_start, end)
+    rows = fetch_all(conn, "SELECT * FROM core.planned_session WHERE plan_id = %s", (plan["id"],))
+    counted = [r for r in rows if not r["optional"] and r["sport"] in SPORT_MATCH]
+    done = [r for r in counted if r["status"] in ("done", "modified")]
+    key = [r for r in counted if r["key"]]
+    status = {r["metric"]: r["status"] for r in fetch_all(
+        conn, "SELECT metric, status FROM analytics.metric_status WHERE date = %s", (end,))}
+    soreness = fetch_one(conn, "SELECT avg(soreness) AS s FROM core.journal WHERE date BETWEEN %s AND %s",
+                         (week_start, end))["s"]
+    flags = fetch_one(conn, """SELECT count(*) AS n FROM analytics.daily_flag WHERE fired AND date BETWEEN %s AND %s
+                               AND rule_id = ANY(%s) AND coalesce(severity, 0) >= 2""",
+                      (week_start, end, list(CAUTION_RULES)))["n"]
+    actual = fetch_one(conn, "SELECT load_week FROM analytics.daily_features WHERE date = %s", (end,))
+    execute(conn, """UPDATE analytics.week_plan SET graded_at = now(), adherence_pct = %s, key_done = %s,
+                     key_planned = %s, load_planned = %s, load_actual = %s, response = %s WHERE id = %s""",
+            (round(len(done) / len(counted) * 100, 1) if counted else None,
+             sum(1 for r in key if r["status"] in ("done", "modified")), len(key),
+             (plan["summary"] or {}).get("planned", {}).get("total"), actual["load_week"] if actual else None,
+             json.dumps(to_jsonable({"hrv_status": status.get("ln_hrv"), "resting_hr_status": status.get("resting_hr"),
+                                     "soreness_avg": round(soreness, 1) if soreness is not None else None,
+                                     "recovery_flags": flags})), plan["id"]))
+    return 1

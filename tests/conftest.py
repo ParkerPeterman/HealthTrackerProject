@@ -52,3 +52,17 @@ def conn(db_url: str):
     use_database(db_url)
     with connect() as c:
         yield c
+
+
+@pytest.fixture()
+def tx(seeded: dict, db_url: str):
+    """A connection to the seeded database whose changes are always rolled back, pass or fail."""
+    import psycopg
+    from psycopg.rows import dict_row
+
+    c = psycopg.connect(db_url, row_factory=dict_row)
+    try:
+        yield c
+    finally:
+        c.rollback()
+        c.close()

@@ -10,7 +10,7 @@ import {
 } from "../components/ui";
 import { addDays, dayLabel, isoDate } from "../dates";
 import { fromKg, showWeight, toKg, weightUnit } from "../units";
-import { GameSheet } from "./Train";
+import { GameSheet, PlanReasonView } from "./Train";
 import { CheckinSheet } from "./Body";
 import { LibraryDetail } from "./Library";
 import { STATUS } from "../goals";
@@ -189,7 +189,10 @@ export default function Today() {
       {sheet === "game" && <GameSheet onClose={() => setSheet(null)} planned={gameToday} />}
       {sheet && typeof sheet === "object" && "plan" in sheet && sheet.plan.session_code && (
         <Sheet title={cap(sheet.plan.notes || sheet.plan.sport)} onClose={() => setSheet(null)}>
-          <LibraryDetail code={sheet.plan.session_code} date={sheet.plan.date} addons={sheet.plan.addons} />
+          <div className="stack">
+            {sheet.plan.reason && <PlanReasonView reason={sheet.plan.reason} optional={sheet.plan.optional} />}
+            <LibraryDetail code={sheet.plan.session_code} date={sheet.plan.date} addons={sheet.plan.addons} />
+          </div>
         </Sheet>
       )}
       {sheet && typeof sheet === "object" && "injury" in sheet && (

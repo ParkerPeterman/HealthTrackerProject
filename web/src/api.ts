@@ -49,11 +49,11 @@ export interface Profile {
   ref_hr_bpm: number | null;
   display_units: "imperial" | "metric";
   training_prefs: {
-    runs_per_week: number;
-    lifts_per_week: number;
-    min_rest_days: number;
-    long_run_day: string;
     generate_plan: boolean;
+    main_days: string[];      // reliable days the plan is built on (F3)
+    day_minutes: number;      // minutes available on each main day
+    bonus_days: boolean;      // optional short sessions on the other days (travel days)
+    bonus_minutes: number;
   };
   notes: string | null;
 }
@@ -206,6 +206,22 @@ export interface Planned {
   session_code?: string | null;   // F2 library entry
   addons?: string[] | null;
   addon_names?: string[] | null;
+  optional?: boolean;             // F3: a Friday-Sunday bonus slot
+  key?: boolean;                  // F3: one of the week's priority sessions
+  reason?: PlanReason | null;
+}
+
+/** F3: why the planner chose this session, this day, and this size. */
+export interface PlanReason {
+  slot: string;
+  phase: Phase;
+  key: boolean;
+  why: string;
+  day: string;            // "as planned" or "moved from Wednesday: the day after a game"
+  changes: string[];      // fallbacks and ramp-cap trims
+  swaps: string[];        // exercise swaps for the day
+  progression?: string;
+  copenhagen?: string;
 }
 
 export interface Checkin {

@@ -150,7 +150,8 @@ def test_library_rows_are_consistent(conn, db_url):
 
 
 @pytest.mark.db
-def test_copenhagen_level_steps_up_and_down(conn, db_url):
+def test_copenhagen_level_steps_up_and_down(tx):
+    conn = tx
     from healthtracker.db import fetch_one, insert
     from healthtracker.planning.library import copenhagen_level
 
@@ -171,7 +172,6 @@ def test_copenhagen_level_steps_up_and_down(conn, db_url):
     insert(conn, "core.behavior_event", {"ts": datetime.combine(day - timedelta(days=1), time(12), ZoneInfo(tz)),
                                          "type_code": "groin_tweak"}, returning=None)
     assert copenhagen_level(conn, day, tz, params)[0] == 1  # a tweak after the last session: back to level 1
-    conn.rollback()
 
 
 @pytest.mark.db
