@@ -374,6 +374,19 @@ def library_session(code: str, day: date | None = None, conn: psycopg.Connection
     return to_jsonable({"state": state, "session": hit})
 
 
+@router.get("/tweak-screen")
+def tweak_screen(conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """F2/B6: what went with groin tweaks (exploratory: odds ratios with 80% intervals)."""
+    from healthtracker.stats.tweaks import FACTORS
+
+    rows = fetch_all(conn, """SELECT * FROM analytics.tweak_screen
+                              WHERE computed_on = (SELECT max(computed_on) FROM analytics.tweak_screen)
+                              ORDER BY p_higher DESC""")
+    for r in rows:
+        r["words"] = FACTORS.get(r["factor"], (r["factor"], False))[0]
+    return to_jsonable({"exploratory": True, "factors": rows})
+
+
 # ------------------------------------------------------------------ aerobic fitness (D3)
 @router.get("/fitness")
 def fitness(day: date | None = None, days: int = 120, conn: psycopg.Connection = Depends(get_conn)) -> dict:

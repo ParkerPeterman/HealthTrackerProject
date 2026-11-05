@@ -128,6 +128,12 @@ def _session_response(conn, d: date) -> int:
     return build_session_response(conn, d)
 
 
+def _tweak_screen(conn, d: date) -> int:
+    from healthtracker.stats.tweaks import run_tweak_screen
+
+    return run_tweak_screen(conn, d)
+
+
 def _shadow_log(conn, d: date) -> int:
     from healthtracker.stats.shadow_log import build_shadow_log
 
@@ -253,6 +259,7 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "effects", step(run_effects), report)  # B1 (shadow), before the OLS cross-check
     run_step("weekly", "sleep_drivers", step(run_sleep_drivers), report)  # E3 (shadow)
     run_step("weekly", "screen", step(run_screen), report)  # B6 (exploratory, shadow)
+    run_step("weekly", "tweak_screen", step(_tweak_screen), report)  # F2/B6: groin tweaks, exploratory
     run_step("weekly", "insights", step(run_insights), report)
     run_step("weekly", "insight_ranking", step(run_ranking), report)  # C1-C4 (shadow)
     run_step("weekly", "fitness_fatigue", step(_fitness_fatigue), report)  # D2 (shadow)
@@ -332,6 +339,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                     run_sleep_drivers(conn, d)
                     if d + timedelta(days=7) > end:  # exploratory: only the latest week matters
                         run_screen(conn, d)
+                        _tweak_screen(conn, d)
                     run_insights(conn, d)
                     run_ranking(conn, d)
                     _med_analysis(conn, d)
