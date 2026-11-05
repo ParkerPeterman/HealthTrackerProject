@@ -73,6 +73,21 @@ table = rows[["finding", "status", "n_exposed", "n_unexposed", "effect_size", "c
 st.dataframe(table, hide_index=True, width="stretch",
              column_config={"summary": st.column_config.TextColumn(width="large")})
 
+st.subheader("Bayesian estimates (B1, shadow)")
+est = c.query("""SELECT h.exposure, h.outcome, h.lag_days, e.kind, e.n_days, e.estimate, e.lo80, e.hi80, e.lo95, e.hi95,
+                        e.p_direction, e.swc, e.p_meaningful, e.days_to_80, e.rho, e.prior_mean, e.prior_sd,
+                        e.prior_source
+                 FROM analytics.effect_estimate e JOIN analytics.hypothesis h ON h.id = e.hypothesis_id
+                 WHERE e.computed_on = (SELECT max(computed_on) FROM analytics.effect_estimate)
+                 ORDER BY e.p_meaningful DESC NULLS LAST""")
+if est.empty:
+    c.empty_state("No Bayesian estimates yet (the weekly job computes them).")
+else:
+    st.caption("Shadow mode: computed weekly next to the tests above, not used for advice until COMP_BAYES_EFFECTS "
+               "is turned on. p_meaningful is P(|effect| > the smallest worthwhile change); days_to_80 is how many "
+               "more days until it would reach 0.8 if the estimate holds. Doses are per unit.")
+    st.dataframe(est, hide_index=True, width="stretch")
+
 st.subheader("Self-experiments")
 exp = c.query("""SELECT e.id, h.exposure, h.outcome, e.design, e.start_date, e.end_date, e.status, e.result_summary
                  FROM analytics.experiment e LEFT JOIN analytics.hypothesis h ON h.id = e.hypothesis_id

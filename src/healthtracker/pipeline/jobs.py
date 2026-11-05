@@ -32,6 +32,7 @@ from healthtracker.recommend.builder import write_recommendation
 from healthtracker.recommend.grading import grade_actions
 from healthtracker.recommend.metrics import MetricResolver
 from healthtracker.rules.engine import run_rules
+from healthtracker.stats.bayes import run_effects
 from healthtracker.stats.experiments import update_experiments
 from healthtracker.stats.insights import run_insights
 from healthtracker.stats.promotion import run_promotion
@@ -180,6 +181,7 @@ def weekly(d: date | None = None) -> JobReport:
                 return fn(conn, d)
         return run
 
+    run_step("weekly", "effects", step(run_effects), report)  # B1 (shadow), before the OLS cross-check
     run_step("weekly", "insights", step(run_insights), report)
     run_step("weekly", "parameter_tuning", step(run_tuning), report)
     run_step("weekly", "rule_promotion", step(run_promotion), report)
@@ -246,6 +248,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                 phrase(conn, d, use_llm=d >= llm_from)
             if weekly_every and d.weekday() == 6 and (d - start).days >= 27:
                 with connect() as conn:
+                    run_effects(conn, d)
                     run_insights(conn, d)
                     run_tuning(conn, d)
                     run_promotion(conn, d)

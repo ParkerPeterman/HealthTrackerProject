@@ -48,6 +48,8 @@ FEATURE_COLUMNS = [
     "sri_7d", "sri_28d", "sri_pairs_28d", "midpoint_sd_7d", "midpoint_sd_28d", "weekend_gap_min_28d",
     # E2 my own sleep rating
     "sleep_quality",
+    # B3 doses
+    "bedtime_hour", "training_min", "caffeine_hours_before_bed",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -235,12 +237,16 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
                   round(extract(epoch FROM (
                       coalesce((sleep_start AT TIME ZONE 'UTC') + make_interval(mins => tz_offset_min),
                                sleep_start AT TIME ZONE %(tz)s)
-                      + ((sleep_end - sleep_start) / 2) - date::timestamp)) / 60) AS sleep_midpoint_min
+                      + ((sleep_end - sleep_start) / 2) - date::timestamp)) / 60) AS sleep_midpoint_min,
+                  round((extract(epoch FROM (
+                      coalesce((sleep_start AT TIME ZONE 'UTC') + make_interval(mins => tz_offset_min),
+                               sleep_start AT TIME ZONE %(tz)s) - (date - 1)::timestamp)) / 3600)::numeric, 2)
+                      AS bedtime_hour
            FROM core.sleep""",
         {"tz": tz},
     )
     join(sleep, ["sleep_score", "sleep_total_min", "hrv", "sleep_rhr", "sleep_midpoint_min", "tz_offset_min",
-                 "resp_rate"])
+                 "resp_rate", "bedtime_hour"])
     df["ln_hrv"] = np.log(df["hrv"].astype(float).where(df["hrv"] > 0)).round(3)
 
     well = fetch_df(conn, """SELECT date, wear_minutes, resting_hr AS day_rhr, avg_stress,
@@ -262,11 +268,13 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
         per_day = w.groupby("date").agg(
             n_workouts=("id", "count"), session_load=("load", "sum"), had_game=("is_game", "any"),
             any_hard=("hard", "any"), run_km=("run_km", "sum"), manual_game=("manual_game", "any"),
+            training_min=("duration_s", lambda x: x.sum() / 60.0),
         ).reset_index()
         join(per_day)
     else:
-        for c in ("n_workouts", "session_load", "had_game", "any_hard", "run_km", "manual_game"):
+        for c in ("n_workouts", "session_load", "had_game", "any_hard", "run_km", "manual_game", "training_min"):
             df[c] = np.nan
+    df["training_min"] = df["training_min"].fillna(0.0).astype(float).round(1)
     df["n_workouts"] = df["n_workouts"].fillna(0).astype(int)
     df["session_load"] = df["session_load"].fillna(0.0).astype(float).round(1)
     for c in ("had_game", "any_hard", "manual_game"):
@@ -349,6 +357,9 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
         df[c] = df[c].round(1)
     df["last_meal_hour"] = df["last_meal_hour"].round(1)
     df["last_caffeine_hour"] = df["last_caffeine_hour"].round(1)
+    # B3: this day's last caffeine to that night's bedtime (the night ending tomorrow).
+    df["caffeine_hours_before_bed"] = (df["bedtime_hour"].astype(float).shift(-1)
+                                       - df["last_caffeine_hour"].astype(float)).round(2)
     df["alcohol_drinks"] = (df["alcohol_g"] / GRAMS_ALCOHOL_PER_DRINK).round(1)
     wt = df["weight_kg_smoothed"].fillna(df["weight_kg"])
     df["protein_g_per_kg"] = (df["protein_g"] / wt).round(2)

@@ -7,6 +7,7 @@ from datetime import date
 import pandas as pd
 import psycopg
 
+from healthtracker.components import component_status, is_live
 from healthtracker.db import execute, fetch_all, fetch_df, insert
 from healthtracker.quality import insight_problem, tiers
 from healthtracker.stats.hypothesis import DEFAULT_EXCLUDES, Hypothesis, finalize, run_test
@@ -27,19 +28,25 @@ def run_insights(conn: psycopg.Connection, as_of: date) -> int:
     features = load_features_frame(conn, as_of)
     if features.empty:
         return 0
-    rows = fetch_all(conn, "SELECT * FROM analytics.hypothesis WHERE status <> 'retired' ORDER BY id")
+    # Dose hypotheses (B3) have no yes/no split: only the Bayesian estimates (B1) cover them.
+    rows = fetch_all(conn, """SELECT * FROM analytics.hypothesis WHERE status <> 'retired' AND kind = 'binary'
+                              ORDER BY id""")
     hyps = {r["id"]: Hypothesis(r["id"], r["exposure"], r["outcome"], r["lag_days"], r["min_n_per_group"],
                                 tuple(r.get("excludes") or DEFAULT_EXCLUDES))
             for r in rows}
     results = [run_test(features, h) for h in hyps.values()]
     finalize(results, hyps)
     tier = tiers(conn)
+    bayes = {}
+    if is_live(component_status(conn), "COMP_BAYES_EFFECTS"):  # B1 replaces the direction probability
+        bayes = {e["hypothesis_id"]: e for e in fetch_all(
+            conn, "SELECT * FROM analytics.effect_estimate WHERE computed_on = %s", (as_of,))}
     for r in results:
         h = hyps[r.hypothesis_id]
         problem = insight_problem(h.exposure, h.outcome, tier)
         if r.status == "supported" and problem:  # E2: no insight rests on poor-quality measures alone
             r.status, r.summary = "weak", f"{r.summary} - {problem}"
-        rec = build_record(r, h, problem)  # C5
+        rec = build_record(r, h, problem, bayes.get(r.hypothesis_id))  # C5
         insert(conn, "analytics.insight", {
             "hypothesis_id": r.hypothesis_id,
             "window_start": r.window[0] if r.window else None,

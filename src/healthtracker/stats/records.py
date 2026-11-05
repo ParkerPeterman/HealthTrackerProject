@@ -39,14 +39,19 @@ def direction_probability(r: TestResult) -> float | None:
     return round(0.5 * (1 + math.erf(abs(r.effect) / se / math.sqrt(2))), 3)
 
 
-def build_record(r: TestResult, h: Hypothesis, quality_problem: str | None = None) -> dict:
+def build_record(r: TestResult, h: Hypothesis, quality_problem: str | None = None, bayes: dict | None = None) -> dict:
+    """`bayes`: the B1 estimate, used once COMP_BAYES_EFFECTS is live (P(|effect| > SWC))."""
     exposure, outcome = describe(h)
-    p = direction_probability(r)
-    word = confidence_word(p) if r.p_value is not None else "too early to tell"
+    p, kind = direction_probability(r), "direction"
+    if bayes and bayes.get("p_meaningful") is not None:
+        p, kind = float(bayes["p_meaningful"]), "meaningful"
+    word = confidence_word(p) if (r.p_value is not None or kind == "meaningful") else "too early to tell"
     n_days = r.n_exposed + r.n_unexposed
     if r.p_value is None:
         need = max(0, h.min_n_per_group - min(r.n_exposed, r.n_unexposed))
         change = f"about {need} more days in the smaller group ({r.n_exposed} with, {r.n_unexposed} without so far)"
+    elif kind == "meaningful" and bayes.get("days_to_80"):
+        change = f"about {bayes['days_to_80']} more days if the estimate holds"
     elif word in ("likely", "very likely"):
         change = "the effect shrinking or reversing as more days come in"
     else:
@@ -58,7 +63,7 @@ def build_record(r: TestResult, h: Hypothesis, quality_problem: str | None = Non
         "outcome_col": h.outcome, "lag_days": h.lag_days,
         "effect": None if r.effect is None else round(r.effect, 1), "unit": UNITS.get(h.outcome, "points"),
         "interval": None if r.ci_low is None else [round(r.ci_low, 1), round(r.ci_high, 1)], "interval_level": 95,
-        "probability": p, "probability_kind": "direction", "confidence": word,
+        "probability": p, "probability_kind": kind, "confidence": word,
         "window": [str(r.window[0]), str(r.window[1])] if r.window else None, "n_days": n_days,
         "n_exposed": r.n_exposed, "n_unexposed": r.n_unexposed, "what_would_change": change,
         "shown": quality_problem is None,

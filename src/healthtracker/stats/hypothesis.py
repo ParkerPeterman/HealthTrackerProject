@@ -60,6 +60,7 @@ class Hypothesis:
     lag_days: int
     min_n_per_group: int = 20
     excludes: tuple[str, ...] = DEFAULT_EXCLUDES
+    kind: str = "binary"  # 'dose': the exposure is a number (B3), estimated only by B1
 
 
 def _bool(f: pd.DataFrame, col: str) -> pd.Series:
@@ -156,7 +157,7 @@ def build_frame(features: pd.DataFrame, h: Hypothesis) -> tuple[pd.DataFrame, li
     col, _, _ = parse_exposure(h.exposure)
     lag = h.lag_days
     df = pd.DataFrame(index=f.index)
-    df["E"] = exposure_series(f, h.exposure)
+    df["E"] = f[col].astype(float) if h.kind == "dose" else exposure_series(f, h.exposure)
     df["Y"] = f[h.outcome].astype(float).shift(-lag)
 
     bad = excluded_days(f, h.excludes, col)
