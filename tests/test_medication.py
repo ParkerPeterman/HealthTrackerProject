@@ -180,3 +180,38 @@ def test_today_card_flow(seeded, db_url):
     finally:
         with connect(db_url) as c:
             execute(c, "DELETE FROM core.medication WHERE id = %s", (mid,))
+
+
+def test_h3_findings_pick_the_right_template():
+    from healthtracker.medication.analysis import findings
+
+    p = {"min_missed_days": 3, "travel_share_confounded": 0.7, "finding_min_p": 0.6}
+    weak = [{"exposure": "med_missed", "outcome": "hrv", "lag_days": 1, "estimate": -2.0, "p_meaningful": 0.3}]
+    assert findings(weak, 0.2, 6, "Demozine", p) == [("missed_effect_early", {"outcome": "HRV, resting HR, sleep, or mood"})]
+    assert findings(weak, 0.85, 6, "Demozine", p)[0][0] == "travel_confounded"
+    strong = [{**weak[0], "estimate": -6.4, "p_meaningful": 0.86},
+              {"exposure": "med_dose_time", "outcome": "sleep_total_min", "lag_days": 1, "estimate": -14.0,
+               "p_meaningful": 0.7}]
+    out = dict(findings(strong, 0.1, 6, "Demozine", p))
+    assert render("missed_effect", **out["missed_effect"]) == "After a missed dose, HRV was 6 ms lower (likely)."
+    text = render("dose_time", **out["dose_time"])
+    assert "14 min lower per hour later (possibly)" in text and text.endswith("whether timing matters.")
+
+
+@pytest.mark.db
+def test_h3_on_the_demo_is_private_and_finds_nothing_planted(seeded, tx):
+    from healthtracker.db import fetch_all
+    from healthtracker.medication.analysis import run_med_analysis
+
+    conn = tx
+    assert run_med_analysis(conn, seeded["end"]) > 0
+    cols = {r["column_name"] for r in fetch_all(conn, """SELECT column_name FROM information_schema.columns
+                                                      WHERE table_schema = 'analytics' AND table_name = 'daily_features'""")}
+    assert not {c for c in cols if c.startswith(("med_", "dose_", "adherence"))}  # never in daily_features
+    eff = fetch_all(conn, "SELECT * FROM analytics.medication_effect WHERE computed_on = %s", (seeded["end"],))
+    missed = [e for e in eff if e["exposure"] == "med_missed" and e["p_meaningful"] is not None]
+    assert missed and all(e["p_meaningful"] < 0.8 for e in missed)  # no physiology was planted
+    msgs = fetch_all(conn, """SELECT * FROM analytics.medication_message WHERE date = %s
+                              AND template IN ('missed_effect', 'missed_effect_early', 'travel_confounded', 'dose_time')""",
+                     (seeded["end"],))
+    assert msgs and not any(m["visible"] for m in msgs)  # shadow for the first month

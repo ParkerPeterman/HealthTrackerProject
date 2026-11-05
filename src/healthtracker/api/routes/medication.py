@@ -24,6 +24,7 @@ from healthtracker.medication.messages import med_params, render, week_count
 from healthtracker.profile import load_profile
 
 router = APIRouter(prefix="/api", tags=["medication"])
+ANALYSIS_TEMPLATES = ("dose_time", "missed_effect", "missed_effect_early", "travel_confounded")
 
 
 class MedicationIn(BaseModel):
@@ -122,9 +123,12 @@ def medication_today(day: date | None = None, conn: psycopg.Connection = Depends
         if usual is not None:
             due = datetime.combine(d, time(0), profile.tz) + timedelta(hours=usual, minutes=med["reminder_delay_min"])
         k, u = week_count(conn, med["id"], d)
-        messages = fetch_all(conn, """SELECT template, text FROM analytics.medication_message
-                                      WHERE date = %s AND medication_id = %s AND visible ORDER BY template""",
-                             (d, med["id"]))
+        # The day's lines, plus the latest weekly findings (H3) from the past week.
+        messages = fetch_all(conn, """SELECT DISTINCT ON (template) template, text FROM analytics.medication_message
+                                      WHERE medication_id = %s AND visible
+                                        AND (date = %s OR (template = ANY(%s) AND date BETWEEN %s AND %s))
+                                      ORDER BY template, date DESC""",
+                             (med["id"], d, list(ANALYSIS_TEMPLATES), d - timedelta(days=6), d))
         out.append({
             "id": med["id"], "name": med["name"], "dose_mg": med["dose_mg"],
             "today": {"status": today["status"], "taken_at": today["taken_at"]} if today else None,

@@ -105,6 +105,12 @@ def _weather_step(d: date) -> int:
         return pull_weather(conn, d)
 
 
+def _med_analysis(conn, d: date) -> int:
+    from healthtracker.medication.analysis import run_med_analysis
+
+    return run_med_analysis(conn, d)
+
+
 def _medication_step(d: date) -> int:
     from healthtracker.medication.features import build_medication_daily
 
@@ -192,6 +198,7 @@ def weekly(d: date | None = None) -> JobReport:
 
     run_step("weekly", "effects", step(run_effects), report)  # B1 (shadow), before the OLS cross-check
     run_step("weekly", "insights", step(run_insights), report)
+    run_step("weekly", "medication_analysis", step(_med_analysis), report)  # H3, sensitive, shadow
     run_step("weekly", "parameter_tuning", step(run_tuning), report)
     run_step("weekly", "rule_promotion", step(run_promotion), report)
     run_step("weekly", "experiments", step(update_experiments), report)
@@ -259,6 +266,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                 with connect() as conn:
                     run_effects(conn, d)
                     run_insights(conn, d)
+                    _med_analysis(conn, d)
                     run_tuning(conn, d)
                     run_promotion(conn, d)
                     update_experiments(conn, d)
