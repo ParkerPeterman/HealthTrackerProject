@@ -101,6 +101,7 @@ export default function Today() {
           </div>
         </div>
         <SevenDay rv={rv} />
+        <Regularity rv={rv} />
       </section>
 
       <LoadCard load7={num(tr.internal_load_7d) ?? num(tr.load_7d)} change={num(tr.internal_load_change_vs_prior_week_pct)}
@@ -253,6 +254,23 @@ function SevenDay({ rv }: { rv: Record<string, number | string | number[]> }) {
           ? `HRV ${BAND_WORD[status]} your normal band (${band[0]}–${band[1]} ms)${rhrStatus === "above" ? "; resting HR above its band" : ""}`
           : learning != null ? `Still learning your normal: ${learning} of 28 days` : "Single nights are noisy; the 7-day average is the signal"}
       </div>
+    </div>
+  );
+}
+
+/** E1: sleep regularity (SRI: 100 = the same sleep times every day, 0 = no pattern), midpoint spread, weekend shift. */
+function Regularity({ rv }: { rv: Record<string, number | string | number[]> }) {
+  const sri = rv.sleep_regularity_index as number | undefined;
+  if (sri == null) return null;
+  const spread = rv.sleep_midpoint_spread_min as number | undefined;
+  const weekend = rv.weekend_sleep_later_min as number | undefined;
+  return (
+    <div className="tiny" style={{ marginTop: 10 }}>
+      <span className="muted">Sleep regularity </span><b className="num">{sri}</b><span className="muted"> of 100</span>
+      {spread != null && <span className="muted"> · midpoint varies ±{spread} min</span>}
+      {weekend != null && Math.abs(weekend) >= 15 && (
+        <span className="muted"> · weekends {Math.abs(weekend)} min {weekend > 0 ? "later" : "earlier"}</span>
+      )}
     </div>
   );
 }

@@ -57,6 +57,20 @@ def seven_day_recovery(ctx: RuleContext) -> dict:
     return out
 
 
+def sleep_regularity(ctx: RuleContext) -> dict:
+    """E1, once 14 nights exist: SRI (-100..100, higher is more regular), midpoint spread, weekend shift."""
+    t = ctx.today
+    if not is_live(ctx.components, "COMP_SLEEP_REGULARITY", ctx.history_days):
+        return {}
+    sri = t.get("sri_28d") if t.get("sri_28d") is not None else t.get("sri_7d")
+    return {k: v for k, v in {
+        "sleep_regularity_index": _r(sri),
+        "sleep_midpoint_spread_min": _r(t.get("midpoint_sd_28d") if t.get("midpoint_sd_28d") is not None
+                                       else t.get("midpoint_sd_7d")),
+        "weekend_sleep_later_min": _r(t.get("weekend_gap_min_28d")),
+    }.items() if v is not None}
+
+
 def build_status(ctx: RuleContext) -> dict:
     """Today's numbers in display units, as the LLM and dashboard see them."""
     d = Display(ctx.profile.display_units)
@@ -71,6 +85,7 @@ def build_status(ctx: RuleContext) -> dict:
             "sleep_last_night": _hm(t.get("sleep_total_min")),
             "sleep_score": _r(t.get("sleep_score")),
             **seven_day_recovery(ctx),
+            **sleep_regularity(ctx),
         },
         "training": {
             "load_yesterday": _r(y.get("session_load")),

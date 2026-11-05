@@ -18,6 +18,7 @@ import psycopg
 from healthtracker.config import get_settings
 from healthtracker.db import fetch_df, fetch_one, upsert
 from healthtracker.features.intensity import rolling_shares, session_zones
+from healthtracker.features.sleep import regularity
 from healthtracker.features.zones import hr_max
 from healthtracker.planning.prehab import prehab_params
 from healthtracker.planning.season import phase_on, phases
@@ -43,6 +44,8 @@ FEATURE_COLUMNS = [
     "zone_min_14d", "easy_pct_14d", "mid_pct_14d", "season_phase",
     # F2 shoulders
     "tag_shoulder", "shoulder_pain",
+    # E1 sleep regularity
+    "sri_7d", "sri_28d", "sri_pairs_28d", "midpoint_sd_7d", "midpoint_sd_28d", "weekend_gap_min_28d",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -352,6 +355,7 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     join(journal, ["mood", "energy", "soreness", "journal_stress"])
 
     context_flags(df, conn, tz)
+    df = df.join(regularity(conn, tz, df.index, df["sleep_midpoint_min"]))
 
     # exclusions and injuries
     excl = fetch_df(
@@ -496,7 +500,7 @@ def build_daily_features(conn: psycopg.Connection, end: date, start: date | None
     int_cols = ["wear_minutes", "sleep_score", "sleep_total_min", "sleep_midpoint_min",
                 "resting_hr", "avg_stress", "body_battery_low", "n_workouts", "days_since_game",
                 "days_since_hard", "next_game_in_days", "mood", "energy", "soreness",
-                "max_pain_activity", "tz_offset_min"]
+                "max_pain_activity", "tz_offset_min", "sri_pairs_28d", "shoulder_pain"]
     rows = []
     for rec in df.to_dict("records"):
         row = {}
