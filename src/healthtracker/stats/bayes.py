@@ -30,7 +30,9 @@ import psycopg
 from scipy import stats
 
 from healthtracker.db import fetch_all, upsert
-from healthtracker.stats.hypothesis import DEFAULT_EXCLUDES, Hypothesis, build_frame
+from healthtracker.stats.hypothesis import DEFAULT_EXCLUDES, Hypothesis, build_frame, parse_exposure
+from healthtracker.stats.pooling import family_of, pool
+from healthtracker.stats.pooling import p_beyond as pooled_p_beyond
 
 DEFAULT_PRIOR = (0.0, 0.5, "no published prior: Normal(0, 0.5 SD) (brief B2 default)")
 A0, B0 = 2.0, 1.0       # IG prior on the residual variance of the standardized outcome (mean 1)
@@ -50,6 +52,7 @@ class Estimate:
     lo95: float | None = None
     hi95: float | None = None
     estimate_sd: float | None = None
+    se_sd: float | None = None
     p_direction: float | None = None
     swc: float | None = None
     p_meaningful: float | None = None
@@ -127,7 +130,7 @@ def summarize(post: dict, j: int, to_raw: float, swc_sd: float) -> dict:
     scale = float(np.sqrt(post["bn"] / post["an"] * post["vn"][j, j]))
     q = {k: float(stats.t.ppf(p, dof, loc, scale)) for k, p in
          (("lo95", 0.025), ("lo80", 0.10), ("hi80", 0.90), ("hi95", 0.975))}
-    out = {"estimate": round(loc * to_raw, 3), "estimate_sd": round(loc, 3),
+    out = {"estimate": round(loc * to_raw, 3), "estimate_sd": round(loc, 3), "se_sd": round(scale, 4),
            **{k: round(v * to_raw, 3) for k, v in q.items()},
            "p_direction": round(float(stats.t.sf(0, dof, loc, scale) if loc > 0 else stats.t.cdf(0, dof, loc, scale)), 3),
            "swc": round(swc_sd * to_raw, 3), "p_meaningful": round(p_beyond(loc, scale, dof, swc_sd), 3),
@@ -202,5 +205,25 @@ def run_effects(conn: psycopg.Connection, as_of: date, features: pd.DataFrame | 
             continue  # a feature the hypothesis needs isn't built yet
         prior = pri.get((h.exposure, h.outcome, h.lag_days), DEFAULT_PRIOR)
         est = estimate(df, h, prior, swc.get(h.outcome, swc.get("default", 0.2)))
-        rows.append({"computed_on": as_of, **asdict(est)})
+        rows.append({"computed_on": as_of, **asdict(est), "family": family_of(parse_exposure(h.exposure)[0], h.outcome),
+                     "pooled_sd": None, "pooled_p_meaningful": None,
+                     "_swc_sd": swc.get(h.outcome, swc.get("default", 0.2))})
+    pool_families(rows)
+    for r in rows:
+        r.pop("_swc_sd")
     return upsert(conn, "analytics.effect_estimate", rows, conflict=["computed_on", "hypothesis_id"]) if rows else 0
+
+
+def pool_families(rows: list[dict]) -> None:
+    """B5: within each family of three or more estimates, pull each toward the family mean."""
+    fams: dict[str, list[dict]] = {}
+    for r in rows:
+        if r["family"] and r["estimate_sd"] is not None and r["se_sd"]:
+            fams.setdefault(r["family"], []).append(r)
+    for members in fams.values():
+        if len(members) < 3:
+            continue
+        mean, sd, _, _ = pool([m["estimate_sd"] for m in members], [m["se_sd"] for m in members])
+        for m, mu, s in zip(members, mean, sd, strict=True):
+            m["pooled_sd"] = round(float(mu), 4)
+            m["pooled_p_meaningful"] = round(float(pooled_p_beyond(np.array([mu]), np.array([s]), m["_swc_sd"])[0]), 3)
