@@ -13,11 +13,14 @@ c.setup("Insights")
 st.title("Insights")
 st.caption("A finding is **supported** only with ≥20 days per group, BH-adjusted p < 0.05, a 95% CI that excludes "
            "zero under HAC errors and a block bootstrap, an effect ≥ 0.2 SD, and replication in later data. "
-           "Controls: day of week, prior night's sleep, training load.")
+           "Controls: day of week, prior night's sleep, training load. Confidence words are fixed: under 0.6 "
+           "*too early to tell*, 0.6-0.8 *possibly*, 0.8-0.95 *likely*, 0.95 or more *very likely* (the probability "
+           "that the effect's direction is right).")
 
 rows = c.query("""SELECT h.id, h.exposure, h.outcome, h.lag_days, h.status AS hyp_status, i.status, i.summary,
                          i.effect_size, i.ci_low, i.ci_high, i.p_value, i.p_adjusted, i.n_exposed, i.n_unexposed,
-                         i.replicated, i.computed_at, i.window_start, i.window_end
+                         i.replicated, i.computed_at, i.window_start, i.window_end,
+                         i.confidence, i.probability, i.record->>'text' AS claim
                   FROM analytics.hypothesis h
                   LEFT JOIN LATERAL (SELECT * FROM analytics.insight x WHERE x.hypothesis_id = h.id
                                      ORDER BY computed_at DESC LIMIT 1) i ON true

@@ -236,7 +236,8 @@ function Findings() {
 function Finding({ h, action }: { h: Hypothesis; action?: () => void }) {
   return (
     <div className="card tight stack">
-      <div className="small">{h.summary ?? `${h.exposure} → ${h.outcome}`}</div>
+      <div className="small">{h.claim ?? h.summary ?? `${h.exposure} → ${h.outcome}`}</div>
+      {h.shown === false && <div className="tiny muted">Rests on a low-quality measure, so it isn't used for advice.</div>}
       {action && <button className="btn small" style={{ alignSelf: "flex-start" }} onClick={action}>Test it: 2-week experiment</button>}
     </div>
   );

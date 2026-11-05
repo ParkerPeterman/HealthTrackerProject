@@ -3,7 +3,8 @@
 The model must (1) cover exactly the actions the rules made, once each,
 (2) use no number that isn't in its input, (3) keep each action's target
 numbers, (4) keep the summary descriptive, with no advice of its own, and
-(5) say nothing about medication, painkillers, or drinking extra water. Medication
+(5) say nothing about medication, painkillers, or drinking extra water, and (6) use a
+confidence word only if the input's insight records carry it (C5), never a stronger one. Medication
 lines come only from approved templates (medication/messages.py); painkillers can
 interact with some prescriptions, so injuries point to a physio or doctor instead;
 and pushing fluids past the day's goal is the main cause of low sodium in exercise.
@@ -15,6 +16,8 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+
+from healthtracker.stats.records import OVERCLAIM, WORDS
 
 NUMBER = re.compile(r"\d+(?:\.\d+)?")
 ADVICE = re.compile(
@@ -109,6 +112,17 @@ def check_output(output: dict, payload: dict, actions: list[dict]) -> CheckResul
         if not msg.strip():
             problems.append(f"action {i['action_id']} message empty")
 
+    given = json.dumps(payload, ensure_ascii=False).lower()
+    for t in texts:
+        low = t.lower()
+        for w in OVERCLAIM:
+            if re.search(rf"\b{re.escape(w)}\b", low):
+                problems.append(f"claims more certainty than any record ('{w}')")
+        for w in sorted(WORDS, key=len, reverse=True):  # "very likely" before "likely"
+            if re.search(rf"\b{re.escape(w)}\b", low):
+                if w not in given:
+                    problems.append(f"confidence word '{w}' isn't in the input's records")
+                low = re.sub(rf"\b{re.escape(w)}\b", " ", low)
     for t in texts:
         if m := BANNED.search(t):
             problems.append(f"mentions '{m.group(0)}', which only code-made templates may cover")

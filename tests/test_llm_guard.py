@@ -73,3 +73,20 @@ def test_no_medication_painkillers_or_extra_water():
         out["items"][1]["message"] = bad
         res = check_output(out, PAYLOAD, ACTIONS)
         assert not res.passed and "only code-made templates" in res.problems[-1], bad
+
+
+def test_confidence_words_must_come_from_the_records():
+    from healthtracker.stats.records import confidence_word
+
+    assert [confidence_word(p) for p in (None, 0.5, 0.6, 0.79, 0.8, 0.94, 0.95)] == \
+        ["too early to tell", "too early to tell", "possibly", "possibly", "likely", "likely", "very likely"]
+    with_record = {**PAYLOAD, "insights": [{"finding": "Likely: ...", "confidence": "likely"}]}
+    out = good()
+    out["summary"] = "HRV is 48 ms, likely lower after late caffeine."
+    assert check_output(out, with_record, ACTIONS).passed
+    out["summary"] = "HRV is 48 ms, very likely lower after late caffeine."
+    res = check_output(out, with_record, ACTIONS)
+    assert not res.passed and "very likely" in res.problems[0]
+    assert not check_output(out, PAYLOAD, ACTIONS).passed  # no records at all
+    out["summary"] = "HRV is 48 ms, which clearly shows the late caffeine."
+    assert "certainty" in check_output(out, with_record, ACTIONS).problems[0]

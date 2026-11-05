@@ -102,3 +102,20 @@ def test_compare(actual, cmp, target, high, expected):
 def test_split_outcome():
     assert split_outcome("hrv_z_30d@1") == ("hrv_z_30d", 1)
     assert split_outcome(None) is None
+
+
+def test_insight_record_and_its_sentence():
+    from healthtracker.stats.hypothesis import Hypothesis, TestResult
+    from healthtracker.stats.records import build_record, render
+
+    h = Hypothesis(1, "last_caffeine_hour >= 14", "sleep_score", 1)
+    r = TestResult(1, 30, 40, effect=-4.2, ci_low=-6.5, ci_high=-1.9, p_value=0.001,
+                   window=(date(2026, 7, 1), date(2026, 9, 28)), status="supported")
+    rec = build_record(r, h)
+    assert rec["confidence"] == "very likely" and rec["probability"] > 0.99 and rec["interval"] == [-6.5, -1.9]
+    text = render(rec)
+    assert text.startswith("Very likely: after last caffeine at or after 14:00, sleep score (that night)")
+    assert "4.2 points lower" in text and "What would change this" in text
+    early = build_record(TestResult(1, 8, 40, window=(date(2026, 7, 1), date(2026, 9, 28))), h)
+    assert early["confidence"] == "too early to tell" and "12 more days" in render(early)
+    assert build_record(r, h, "rests on a poor-quality measure (deep_min)")["shown"] is False

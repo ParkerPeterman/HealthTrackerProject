@@ -386,6 +386,12 @@ export interface Hypothesis {
   n_exposed: number | null;
   n_unexposed: number | null;
   can_experiment: boolean;
+  // C5 structured record
+  claim?: string | null;
+  confidence?: "too early to tell" | "possibly" | "likely" | "very likely" | null;
+  probability?: number | null;
+  what_would_change?: string | null;
+  shown?: boolean | null;
 }
 
 export interface Experiment {

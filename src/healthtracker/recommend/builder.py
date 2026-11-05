@@ -160,14 +160,19 @@ def upcoming(ctx: RuleContext) -> list[dict]:
 
 
 def supported_insights(conn: psycopg.Connection) -> list[dict]:
+    """C5: supported insights as their structured records (the guard checks phrasing against them)."""
     rows = fetch_all(
         conn,
-        """SELECT DISTINCT ON (i.hypothesis_id) h.exposure, h.outcome, h.lag_days, i.effect_size,
-                  i.n_exposed, i.n_unexposed, i.summary, i.status
-           FROM analytics.insight i JOIN analytics.hypothesis h ON h.id = i.hypothesis_id
-           ORDER BY i.hypothesis_id, i.computed_at DESC""")
-    return [{"finding": r["summary"], "n_days": r["n_exposed"] + r["n_unexposed"]}
-            for r in rows if r["status"] == "supported"][:5]
+        """SELECT DISTINCT ON (i.hypothesis_id) i.status, i.shown, i.record
+           FROM analytics.insight i ORDER BY i.hypothesis_id, i.computed_at DESC""")
+    out = []
+    for r in rows:
+        rec = r["record"]
+        if r["status"] != "supported" or not r["shown"] or not rec:
+            continue
+        out.append({"finding": rec["text"], "confidence": rec["confidence"], "effect": rec["effect"],
+                    "unit": rec["unit"], "interval": rec["interval"], "n_days": rec["n_days"]})
+    return out[:5]
 
 
 def dominated_actions(fired: list[Evaluated]) -> set[int]:

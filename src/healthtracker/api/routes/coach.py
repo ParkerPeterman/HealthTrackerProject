@@ -217,7 +217,9 @@ def put_param(rule_id: str, name: str, body: ParamIn, conn: psycopg.Connection =
 @router.get("/hypotheses")
 def hypotheses(conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     rows = fetch_all(conn, """SELECT h.*, i.status AS insight_status, i.summary, i.effect_size, i.ci_low, i.ci_high,
-                                     i.p_adjusted, i.n_exposed, i.n_unexposed, i.replicated, i.computed_at
+                                     i.p_adjusted, i.n_exposed, i.n_unexposed, i.replicated, i.computed_at,
+                                     i.confidence, i.probability, i.what_would_change, i.shown,
+                                     i.record->>'text' AS claim
                               FROM analytics.hypothesis h
                               LEFT JOIN LATERAL (SELECT * FROM analytics.insight x WHERE x.hypothesis_id = h.id
                                                  ORDER BY computed_at DESC LIMIT 1) i ON true
