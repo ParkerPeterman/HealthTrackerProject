@@ -27,23 +27,37 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | E1 | `features/sleep.py`: Phillips SRI (sleep windows + naps, local clock), midpoint SD, weekend gap; 7/28 days | 021 |
 | E2 | `knowledge.feature_quality` tiers, `analytics.rule.inputs`; poor-only rules can't go active, poor-tier insights never supported; journal `sleep_quality` replaces motivation in the app | 022 |
 | C5 | Insight records (`stats/records.py`), fixed confidence words, guard rejects words not in the records | 023 |
+| B1-B3 | `stats/bayes.py` (NIG after AR(1); design/fit/summarize; log evidence; `ar=False` for run-level data), `knowledge.effect_priors`, `ANALYSIS_SWC`, dose hypotheses | 024 |
+| G1 v1 | `features/readiness.py`, `analytics.readiness_daily` (shadow) | 025 |
+| F4 | `TRAIN_DAILY_ADJUST` shadow rule (no medication inputs) | 026 |
+| H3 | `medication/analysis.py`, `analytics.medication_effect` (sensitive, shadow) | 027 |
+| E3 | `stats/sleep_drivers.py`, `analytics.sleep_driver` (shadow) | 028 |
+| B7 | `stats/designs.py`: Mon-Thu / Fri-Sun blocks, stratified randomization, suggested experiment | 029 |
+| E5 | `RECOV_POSSIBLE_ILLNESS` shadow rule | 030 |
+| B6 | `stats/screen.py`, `analytics.screen_result` (prior 0.2 SD, not 0.1) | 031 |
+| C1-C4 | `stats/insight_types.py`, `stats/ranking.py`, `analytics.weekly_insight` with "new to me / knew it" rating (shadow) | 032 |
+| D2 | `features/fitness_fatigue.py`, backtest vs naive, 8-week forecast (shadow) | 033 |
+| B5 | `stats/pooling.py`, pooled estimates on `effect_estimate` | 034 |
+| D5 | `features/session_response.py`; planner keeps `recovery_hours` before games | 035 |
+| E4 | `features/long_term.py`, `analytics.long_trend`, `analytics.health_weekly` | 036 |
 
 ## Next, in order
 
-Everything the brief marks live for the week of Nov 9 is done. Next, the shadow items:
-
-1. **B1-B3**: conjugate Normal-Inverse-Gamma effect estimates after AR(1) prewhitening (P(|b| > SWC), 80/95% intervals, days to reach 0.8), `knowledge.effect_priors` with cited sources (Normal(0, 0.5 SD) where none), continuous doses. Swap C5's direction probability for P(meaningful) once B1 runs.
-2. **G1 v1** readiness score (0-100, weighted standardized deviations, top drivers; shadow).
-3. **F4** daily adjustment (keep / downgrade / swap / rest from A2 band, RHR, sleep, journal, H4 flag; shadow), reading the H4 readiness flag.
-4. **H3** medication analysis (weekly job, shadow): dose change = known change point, missed-dose B1 estimates with weak priors, dose time vs sleep, travel confounding, templates 6-8.
-
-Then B4-B7, C1-C4, D2, D5, E3-E5, F5-F7, G2-G5, Section 13 evaluation, README and design-notes updates.
+1. **F5-F7** in `planning/weekly.py` (designed, not started):
+   - F5: progression factor only when last week's key sessions were done (week_plan grade) and no caution, else hold at 1.0; a deload every Nth week of a phase (`deload_every`, default 4): deload factor, low-end durations, VO2 level held; strength load suggestions from the last session's RIR (+5% at RIR 3+, +2.5% at 2, hold at 1, -5% at 0) shown in the library detail.
+   - F6: a plan `health` block from planned sessions (moderate/vigorous minutes, strength days vs WHO, from E4's rules); extend easy runs toward 150 equivalent minutes within the caps; a sleep-regularity note when SRI is low; the protein target in the summary.
+   - F7: pre-season return stage by week (1-2: accelerations only, no max velocity, cutting, or game-like; 3-4: max velocity and cutting; 5+: everything), sprint metres scaled 0.5 / 0.75 / 1.0 before the ramp caps.
+2. **G2** forecasts (fitness via D2/D3, Kalman weight trend: check `goals` first, goal ETAs as date ranges; each must beat naive in rolling backtests), **G3** Bayesian online change points (medication dose changes stay in the sensitive tables), **G4** anomaly explanations from drivers and A4 flags, **G5** fair grading of advice (state-matched followed vs not, with intervals), **B4** lagged effects (exponential-decay lags, tau chosen by `log_ev`).
+3. **Section 13**: plant the remaining demo effects (interaction, change point, temperature effect on HR, groin tweaks) on separate RNG streams; run methods at 14/30/60/120 days; a weekly shadow-comparison log; a runtime check (nightly < 2 min, weekly < 10 min).
+4. README (Privacy is already updated) and design-notes: spacing rule, the medication/LLM separation, B1 priors, shadow switches.
 
 ## Judgment calls to raise with the owner
 
 - **VO2 build spacing.** The brief puts the two VO2 sessions on Wed and Thu, which breaks "no back-to-back hard days". The template uses Tue and Thu. Default spacing also lets a hard endurance day follow a sprint/strength day (otherwise only two hard days fit in Mon-Thu); `ANALYSIS_PLAN.strict_spacing = 1` forbids any adjacent hard days.
 - **Safety templates live.** The dizziness-in-training and lowest-mood (988) medication messages are live (`COMP_MED_SAFETY`), alongside the adherence display; the readiness template is in shadow.
 - **Journal**: mood and energy are among the journal taps, which answers the brief's open question for H4.
+- **Medication never feeds coaching rules.** F4 ignores the medication readiness flag (it acts only through its own template); dose time is analyzed only in H3, not in E3.
+- **Screen prior 0.2 SD** instead of the brief's 0.1 example: 0.1 hid a planted per-drink effect in 90 demo days.
 
 ## Decisions already made by the owner
 
@@ -80,7 +94,7 @@ BIN=<scratch>/pgvenv/lib/python3.12/site-packages/pgserver/pginstall/bin
 $BIN/initdb -D <scratch>/pgdata -U health --auth=trust -E UTF8 --locale=C.UTF-8   # first time only
 $BIN/pg_ctl -D <scratch>/pgdata -o "-p 55432 -c unix_socket_directories='' -c listen_addresses=127.0.0.1 -c fsync=off" -l <scratch>/pg.log start
 export TEST_DATABASE_URL=postgresql://health@127.0.0.1:55432/healthtracker_test
-.venv/bin/pytest -q                  # ~220 tests, about a minute
+.venv/bin/pytest -q                  # ~263 tests, under two minutes
 cd web && npx tsc -b                 # typecheck the app
 ```
 
