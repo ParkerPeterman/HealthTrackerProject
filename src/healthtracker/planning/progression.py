@@ -10,6 +10,12 @@
   default every 4th) is a deload week: the deload factor, durations at the low end of their
   range, optional sessions dropped while the week is over its target, the VO2 level held, and
   one set fewer on the lifts. The holiday deload phase has its own template.
+* Return to ultimate (F7). Pre-season builds the movements behind the common hamstring and
+  ankle injuries back up by week: weeks 1-2 accelerations only (no max-velocity sprinting,
+  cutting, or game-like work), weeks 3-4 add max velocity and cutting, week 5 on everything.
+  Each library session names the first stage it belongs to (`return_stage`), and the week's
+  sprint metres are scaled 0.5 / 0.75 / 1.0 before the ramp caps. Injury restrictions apply on
+  top, as everywhere.
 * Strength. Each lift's suggested weight follows the reps in reserve on my last session's
   top sets: RIR 3 or more +5%, RIR 2 +2.5%, RIR 1 hold, RIR 0 -5%. Weights round to what
   plates allow (2.5 kg, or 5 lb in imperial; 1 kg or 2.5 lb under 20 kg), and when the
@@ -58,6 +64,36 @@ def deload_on(conn: psycopg.Connection, d: date, params: dict | None = None) -> 
     phase = phase_on(rows, monday)
     every = (params if params is not None else load_params(conn)).get("ANALYSIS_PLAN", {}).get("deload_every", 4)
     return phase == "deload" or scheduled_deload(phase, phase_week(rows, monday), every)
+
+
+# ------------------------------------------------------------------ return to ultimate (F7)
+RETURN_DEFAULTS = {"return_maxv_week": 3, "return_full_week": 5}
+RETURN_SCALE = {1: 0.5, 2: 0.75, 3: 1.0}
+RETURN_WORDS = {1: "accelerations only", 2: "max-velocity sprinting and cutting added",
+                3: "everything, game-like work included"}
+RETURN_ADDS = {2: "max-velocity sprinting and cutting", 3: "game-like work"}   # what each stage brings in
+
+
+def return_weeks(params: dict | None) -> tuple[int, int]:
+    p = {**RETURN_DEFAULTS, **((params or {}).get("ANALYSIS_PLAN", {}))}
+    maxv = int(p["return_maxv_week"])
+    return maxv, max(maxv, int(p["return_full_week"]))
+
+
+def return_stage(phase: str, week_no: int | None, params: dict | None = None) -> int | None:
+    """1, 2, or 3 in pre-season (by week of the phase); None in every other phase."""
+    if phase != "preseason" or week_no is None:
+        return None
+    maxv, full = return_weeks(params)
+    return 1 if week_no < maxv else 2 if week_no < full else 3
+
+
+def return_stage_on(conn: psycopg.Connection, d: date, params: dict | None = None) -> int | None:
+    rows = phases(conn)
+    monday = d - timedelta(days=d.weekday())
+    if phase_on(rows, d) != "preseason":
+        return None
+    return return_stage("preseason", phase_week(rows, monday), params if params is not None else load_params(conn))
 
 
 # ------------------------------------------------------------------ may next week grow?

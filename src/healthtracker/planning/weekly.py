@@ -37,7 +37,10 @@ Code decides every session, day, and size; the LLM is not involved.
    from the planned sessions; easy runs lengthen toward 150 minutes inside the caps (not in a
    deload or after recovery flags); a sleep-regularity note when the SRI is low; the protein
    target in grams a day.
-5. Output. Each session carries one structured reason. Plans are versioned: the same inputs
+5. Return to ultimate (F7): in pre-season, weeks 1-2 are accelerations only, weeks 3-4 add
+   max-velocity sprinting and cutting, week 5 on everything (the library's `return_stage`,
+   checked per day); sprint metres are scaled 0.5 / 0.75 / 1.0 before the ramp caps.
+6. Output. Each session carries one structured reason. Plans are versioned: the same inputs
    give the same plan and no new version. Each week's plan is graded afterwards on
    adherence (planned sessions matched to workouts) and response.
 
@@ -61,6 +64,7 @@ from healthtracker.ingest.weather import ATTRIBUTION, bad_for_outdoors, daily_fo
 from healthtracker.jsonutil import to_jsonable
 from healthtracker.planning.health import gather_protein, gather_sleep, plan_health, render_health
 from healthtracker.planning.library import (
+    PHASE_WORDS,
     DayState,
     active_restrictions,
     check,
@@ -72,14 +76,23 @@ from healthtracker.planning.library import (
     mid_minutes,
 )
 from healthtracker.planning.prehab import shoulder_state
-from healthtracker.planning.progression import phase_week, progression_check, scheduled_deload
+from healthtracker.planning.progression import (
+    RETURN_ADDS,
+    RETURN_SCALE,
+    RETURN_WORDS,
+    phase_week,
+    progression_check,
+    return_stage,
+    return_weeks,
+    scheduled_deload,
+)
 from healthtracker.planning.ramp import ramp_cap
 from healthtracker.planning.season import phase_for, phases
 from healthtracker.planning.templates import GOAL_ROLES, ROTATIONS, TEMPLATES, Slot
 from healthtracker.profile import load_profile
 from healthtracker.rules.context import load_injuries, load_params
 
-PLANNER_VERSION = "f6.1"
+PLANNER_VERSION = "f7.1"
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAY_WORDS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 LOWER = {"quads", "hamstrings", "glutes", "calves", "adductors"}
@@ -130,6 +143,11 @@ class PlanInputs:
     @property
     def deloading(self) -> bool:
         return self.phase == "deload" or self.deload_week
+
+    @property
+    def return_stage(self) -> int | None:
+        """F7: the return-to-ultimate stage in pre-season (1-3), None otherwise."""
+        return return_stage(self.phase, self.phase_week, self.params)
 
 
 # ------------------------------------------------------------------ placement
@@ -413,6 +431,18 @@ def apply_caps(week: Week, room: dict[str, float]) -> None:
             drop(p, f"weekly {word} ramp cap")
 
 
+def return_scale(week: Week, stage: int) -> None:
+    """F7: sprint metres at half, three quarters, then all of the session's volume."""
+    k = RETURN_SCALE[stage]
+    if k >= 1:
+        return
+    for p in week.placed:
+        if p.sprint_m and week.inp.states[week.dates[p.day]].return_stage:
+            p.sprint_m = int(5 * round(p.sprint_m * k / 5))
+            p.notes.append(f"return to ultimate, week {week.inp.phase_week} of pre-season: "
+                           f"{'half' if k == 0.5 else 'three quarters'} of the sprint volume ({p.sprint_m} m)")
+
+
 def deload_scale(week: Week) -> None:
     """A scheduled deload week (F5): non-key sessions shorter, fewer sprint and jump reps."""
     k = week.inp.p("deload_factor")
@@ -467,6 +497,10 @@ def fit_target(week: Week, target: float | None, room: dict[str, float], grow: b
 
 # ------------------------------------------------------------------ the plan
 def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> dict:
+    stage, weeks = inp.return_stage, return_weeks(inp.params)
+    if stage:  # every pre-season day checks the stage
+        inp = replace(inp, states={d: replace(st, return_stage=stage, return_weeks=weeks) if st.phase == "preseason"
+                                   else st for d, st in inp.states.items()})
     week = Week(inp, lib, meta)
     template = TEMPLATES.get(inp.phase, TEMPLATES["base"])
     goal_keys = {GOAL_ROLES[g] for g in inp.goals if g in GOAL_ROLES}
@@ -485,6 +519,8 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
     room = {k: max(0.0, caps[k] - fixed[k]) for k in caps}
     target, why = load_target(inp)
     target = min(target - fixed["total"], room["total"]) if target is not None else None
+    if stage:
+        return_scale(week, stage)
     if inp.deload_week:
         deload_scale(week)
     apply_caps(week, room)
@@ -532,6 +568,7 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
                       "easy_pct": round((run_min - hard_min) / run_min * 100, 1) if run_min else None,
                       "easy_target_pct": easy_target},
         "games": sorted(str(g) for g in week.games), "dropped": week.dropped, "health": health,
+        "return_to_play": return_block(inp, week, stage, weeks),
         "weather": weather, "attribution": ATTRIBUTION if inp.weather else None,
         "levels": {"vo2": list(inp.vo2_level), "copenhagen": list(inp.copenhagen)},
         "progression": {"phase_week": inp.phase_week, "deload_week": inp.deload_week,
@@ -541,6 +578,18 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
         "sessions": sessions,
         "fixed": [{k: s.get(k) for k in ("date", "sport", "session_type", "planned_duration_min")} for s in inp.fixed],
     }
+
+
+def return_block(inp: PlanInputs, week: Week, stage: int | None, weeks: tuple[int, int]) -> dict | None:
+    """F7: where the pre-season build-up stands this week."""
+    if not stage:
+        return None
+    nxt = None
+    if stage < 3:
+        nxt = f"{RETURN_ADDS[stage + 1]} from week {weeks[stage - 1]}"
+    game = bool(week.games) and stage < 3
+    return {"stage": stage, "week": inp.phase_week, "now": RETURN_WORDS[stage], "next": nxt,
+            "sprint_scale": RETURN_SCALE[stage], "game_before_full": game}
 
 
 def apply_weather(week: Week) -> dict[str, str]:
@@ -657,6 +706,10 @@ def gather(conn: psycopg.Connection, week_start: date) -> PlanInputs:
                              shoulder_flagged=shoulder)
     phase = states[week_start].phase
     week_no = phase_week(phases(conn), week_start)
+    stage, weeks = return_stage(phase, week_no, params), return_weeks(params)
+    if stage:
+        states = {d: replace(st, return_stage=stage, return_weeks=weeks) if st.phase == "preseason" else st
+                  for d, st in states.items()}
     plan_p = params.get("ANALYSIS_PLAN", {})
     deload = scheduled_deload(phase, week_no, plan_p.get("deload_every", DEFAULTS["deload_every"]))
     main = tuple(DAY_NAMES.index(x) for x in prefs.get("main_days", DAY_NAMES[:4]) if x in DAY_NAMES)
@@ -710,7 +763,7 @@ def plan_hash(plan: dict) -> str:
 
 
 def render_plan(plan: dict) -> str:
-    phase = plan["phase"].replace("_", " ").replace("vo2", "VO2")
+    phase = PHASE_WORDS.get(plan["phase"], plan["phase"].replace("_", " "))
     caps, tot = plan["caps"], plan["planned"]
     prog = plan.get("progression") or {}
     week_no = f", week {prog['phase_week']}" if prog.get("phase_week") else ""
@@ -739,6 +792,16 @@ def render_plan(plan: dict) -> str:
     left_out = [x["slot"].replace("_", " ") for x in plan["dropped"] if not x["optional"]]
     if left_out:
         lines += ["", f"Left out this week: {', '.join(left_out)} (see each session's reason)."]
+    rtp = plan.get("return_to_play")
+    if rtp:
+        line = f"Return to ultimate: week {rtp['week']} of pre-season, {rtp['now']}"
+        if rtp["next"]:
+            line += f"; {rtp['next']}"
+        if rtp["sprint_scale"] < 1:
+            line += f". Sprint volume at {round(rtp['sprint_scale'] * 100)}%"
+        lines += ["", line + "."]
+        if rtp["game_before_full"]:
+            lines.append("- A game this week comes before the build-up is complete: ease into the first points.")
     health = render_health(plan.get("health"))
     if health:
         lines += ["", *health]
@@ -768,7 +831,7 @@ def write_week_plan(conn: psycopg.Connection, week_start: date) -> int:
                          (week_start,))["v"] or 0) + 1
     summary = {k: plan[k] for k in ("target_load", "reason", "chronic_weekly_load", "caps", "last_week", "planned",
                                     "fixed_load", "planned_load", "intensity", "games", "dropped", "levels", "names",
-                                    "weather", "attribution", "progression", "health")}
+                                    "weather", "attribution", "progression", "health", "return_to_play")}
     plan_id = insert(conn, "analytics.week_plan", {
         "week_start": week_start, "version": version, "phase": plan["phase"], "inputs": plan["inputs"],
         "summary": to_jsonable(summary), "plan_hash": h})

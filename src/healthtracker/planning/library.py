@@ -8,6 +8,8 @@ Sessions live in knowledge.session_library. `check()` lists why a session doesn'
     throwing while the shoulders are flagged
   * active injury restrictions, matched on the session's activities and effort, and on its
     exercises' names, movement patterns, and primary muscles
+  * in pre-season, the return-to-ultimate stage (F7): max-velocity sprinting and cutting wait
+    for stage 2, game-like work for stage 3
 
 `exercises_for()` applies the swaps: overhead pressing becomes landmine pressing while the
 shoulders are flagged, and an exercise a restriction rules out becomes its listed
@@ -26,6 +28,7 @@ from healthtracker.components import component_status, is_live
 from healthtracker.db import fetch_all, fetch_one
 from healthtracker.features.zones import Zones
 from healthtracker.planning.prehab import prehab_params, shoulder_state
+from healthtracker.planning.progression import RETURN_ADDS, return_stage_on, return_weeks
 from healthtracker.planning.season import phase_for
 
 TAG_WORDS = {"hamstring_tight": "tight hamstring", "groin_tweak": "groin tweak"}
@@ -43,11 +46,14 @@ class DayState:
     restrictions: list[dict] = field(default_factory=list)   # injury_restriction rows active on `date`
     tag_days: dict[str, date] = field(default_factory=dict)  # tag code -> last day tagged, on or before `date`
     shoulder_flagged: bool = False
+    return_stage: int | None = None                          # F7: 1-3 in pre-season, None otherwise
+    return_weeks: tuple[int, int] = (3, 5)                   # pre-season weeks that start stages 2 and 3
 
     def as_dict(self) -> dict:
         return {"date": self.date, "phase": self.phase, "hrv_status": self.hrv_status,
                 "restrictions": [_restriction_words(r) for r in self.restrictions],
-                "tag_days": self.tag_days, "shoulder_flagged": self.shoulder_flagged}
+                "tag_days": self.tag_days, "shoulder_flagged": self.shoulder_flagged,
+                "return_stage": self.return_stage}
 
 
 def load_library(conn: psycopg.Connection, include_inactive: bool = False) -> dict[str, dict]:
@@ -128,6 +134,10 @@ def check(entry: dict, state: DayState, meta: dict[str, dict]) -> list[str]:
             reasons.append(f"{TAG_WORDS.get(tag, tag)} {when}")
     if pre.get("shoulder_ok") and state.shoulder_flagged:
         reasons.append("shoulders are sore")
+    stage = entry.get("return_stage") or 1
+    if state.return_stage is not None and stage > state.return_stage:
+        week = state.return_weeks[stage - 2]
+        reasons.append(f"return to ultimate: {RETURN_ADDS[stage]} from week {week} of pre-season")
     for r in state.restrictions:
         if r["target_type"] != "activity":
             continue
@@ -193,7 +203,7 @@ def copenhagen_level(conn: psycopg.Connection, d: date, tz: str, params: dict | 
 
 
 def day_state(conn: psycopg.Connection, d: date, tz: str, injuries: list[dict] | None = None) -> DayState:
-    from healthtracker.rules.context import load_injuries
+    from healthtracker.rules.context import load_injuries, load_params
 
     hrv = None
     if is_live(component_status(conn), "COMP_HRV_BANDS"):
@@ -204,6 +214,8 @@ def day_state(conn: psycopg.Connection, d: date, tz: str, injuries: list[dict] |
                                 AND (ts AT TIME ZONE %s)::date BETWEEN %s AND %s GROUP BY type_code""",
                      (tz, tz, d - timedelta(days=14), d))
     injuries = load_injuries(conn, d) if injuries is None else injuries
+    params = load_params(conn)
     return DayState(date=d, phase=phase_for(conn, d), hrv_status=hrv, restrictions=active_restrictions(injuries, d),
                     tag_days={r["type_code"]: r["d"] for r in tags},
-                    shoulder_flagged=shoulder_state(conn, d, tz)["flagged"])
+                    shoulder_flagged=shoulder_state(conn, d, tz)["flagged"],
+                    return_stage=return_stage_on(conn, d, params), return_weeks=return_weeks(params))

@@ -20,6 +20,9 @@ Tokens stand for this week's progression or rotation:
   {speed_pre}   max-velocity sprints and change of direction on alternate weeks
   {ultimate}    repeated sprints and game-like intervals on alternate weeks
 
+In pre-season the return-to-ultimate stage (F7) decides which of these fit: in weeks 1-2
+the Monday slot falls back to acceleration sprints and the Thursday one to hill repeats.
+
 The base template is the brief's: Monday speed and jumps then heavy legs with Copenhagen
 and Nordics, Tuesday easy run and upper body with shoulder work, Wednesday VO2, Thursday
 easy long run with strides and single-leg strength, optional travel-day sessions. VO2 build
@@ -103,7 +106,7 @@ TEMPLATES: dict[str, tuple[Slot, ...]] = {
         Slot("easy", 2, ("easy_run",), repeat=True, why="Easy aerobic volume"),
         Slot("upper", 2, ("strength_upper",), addons=("shoulder_bands", "{copenhagen}"),
              why="Upper body, shoulder work, and the second Copenhagen session"),
-        Slot("ultimate", 3, ("{ultimate}", "cod_drills"), key=True,
+        Slot("ultimate", 3, ("{ultimate}", "cod_drills", "hill_repeats"), key=True,
              why="Repeated sprints and game-like intervals for points"),
         Slot("single_leg", 3, ("strength_single_leg",), addons=("{copenhagen}",),
              why="Single-leg strength and the third Copenhagen session"),
