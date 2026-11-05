@@ -172,6 +172,14 @@ def decide_rule_status(proposal_id: int, body: DecisionIn, conn: psycopg.Connect
     return {"ok": True}
 
 
+@router.get("/shadow-log")
+def shadow_log(weeks: int = 4, conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+    """Section 13: where the old and new logic disagreed, week by week."""
+    return to_jsonable(fetch_all(conn, """SELECT * FROM analytics.shadow_log
+                                          WHERE week_start >= (SELECT max(week_start) FROM analytics.shadow_log) - %s * 7
+                                          ORDER BY week_start DESC, component""", (max(weeks - 1, 0),)))
+
+
 @router.get("/advice-grades")
 def advice_grades(conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     """G5: what following each rule's advice did on comparable days, with the raw comparison beside it."""

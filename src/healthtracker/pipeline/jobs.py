@@ -25,7 +25,7 @@ from healthtracker.features.zones import raise_from_observed
 from healthtracker.goals.targets import run_goal_check
 from healthtracker.ingest.garmin import pull
 from healthtracker.llm.phrase import phrase
-from healthtracker.pipeline.runner import JobReport, run_step
+from healthtracker.pipeline.runner import JobReport, finish, run_step
 from healthtracker.planning.season import ensure_season
 from healthtracker.profile import load_profile
 from healthtracker.recommend.builder import write_recommendation
@@ -126,6 +126,12 @@ def _session_response(conn, d: date) -> int:
     from healthtracker.features.session_response import build_session_response
 
     return build_session_response(conn, d)
+
+
+def _shadow_log(conn, d: date) -> int:
+    from healthtracker.stats.shadow_log import build_shadow_log
+
+    return build_shadow_log(conn, d)
 
 
 def _advice_grading(conn, d: date) -> int:
@@ -229,7 +235,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
             return 1 if phrase(conn, d, use_llm=use_llm) else 0
 
     run_step("nightly", "llm_message", llm, report)
-    return report
+    return finish(report)
 
 
 def weekly(d: date | None = None) -> JobReport:
@@ -264,7 +270,8 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "plan_grade", step(lambda conn, _d: grade_week_plan(conn, next_monday - timedelta(days=7))),
              report)
     run_step("weekly", "week_plan", step(lambda conn, _d: write_week_plan(conn, next_monday)), report)
-    return report
+    run_step("weekly", "shadow_log", step(_shadow_log), report)  # section 13: old vs new, for the owner
+    return finish(report)
 
 
 def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -> JobReport:
@@ -331,6 +338,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                     run_tuning(conn, d)
                     _advice_grading(conn, d)
                     run_promotion(conn, d)
+                    _shadow_log(conn, d)
                     update_experiments(conn, d)
                     run_goal_check(conn, d)
                     grade_week_plan(conn, d - timedelta(days=6))

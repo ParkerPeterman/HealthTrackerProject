@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type Experiment, type Hypothesis, type Proposals, type Recommendation, type Rule } from "../api";
+import { api, type Experiment, type Hypothesis, type Proposals, type Recommendation, type Rule, type ShadowLogRow } from "../api";
 import { Chips, CoachText, Empty, Icon, Stars, useRun } from "../components/ui";
 import { dayLabel } from "../dates";
 
@@ -266,6 +266,7 @@ function History() {
   if (!data.length) return <Empty>No recommendations yet.</Empty>;
   return (
     <div className="stack">
+      <ShadowLog />
       {data.map((r) => {
         const graded = r.actions.filter((a) => a.followed != null);
         const followed = graded.filter((a) => a.followed).length;
@@ -307,6 +308,24 @@ function History() {
 }
 
 /** B7: the next block-randomized experiment, chosen by how much it should teach about sleep and endurance. */
+/** Section 13: where the old and new logic disagreed last week (the evidence for switching a shadow part on). */
+function ShadowLog() {
+  const { data } = useQuery({ queryKey: ["shadow-log"], queryFn: () => api.get<ShadowLogRow[]>("/shadow-log?weeks=1") });
+  if (!data?.length) return null;
+  return (
+    <details className="card tight">
+      <summary className="spread small">
+        <span>Shadow comparisons</span>
+        <span className="muted">week of {dayLabel(data[0].week_start)}</span>
+      </summary>
+      <ul className="small" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+        {data.map((r) => <li key={r.component}>{r.summary}</li>)}
+      </ul>
+      <p className="tiny muted" style={{ margin: "8px 0 0" }}>Old and new logic run side by side; this changes nothing by itself.</p>
+    </details>
+  );
+}
+
 function SuggestedExperiment() {
   const qc = useQueryClient();
   const run = useRun();

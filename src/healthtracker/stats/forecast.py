@@ -145,7 +145,9 @@ def summarize(errs: list[float], base: list[float], inside: list[bool]) -> dict:
 def forecast_series(metric: str, s: pd.Series, end: date) -> dict | None:
     horizon, test, min_obs, window = SERIES[metric]
     s = s.dropna()
-    s = s[s.index <= pd.Timestamp(end)]
+    if s.empty:
+        return None
+    s = s[pd.DatetimeIndex(s.index) <= pd.Timestamp(end)]
     if s.index.nunique() < min_obs:
         return None
     try:
@@ -238,9 +240,13 @@ def goal_forecast(conn: psycopg.Connection, goal: dict, as_of: date, better: str
 
 
 # ------------------------------------------------------------------ from the database
+def _empty() -> pd.Series:
+    return pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+
+
 def _series(df: pd.DataFrame, col: str, scale: float = 1.0) -> pd.Series:
     if df.empty:
-        return pd.Series(dtype=float)
+        return _empty()
     return pd.Series(df[col].astype(float).to_numpy() * scale, index=pd.to_datetime(df["date"])).sort_index()
 
 
@@ -257,8 +263,7 @@ def load_series(conn: psycopg.Connection, end: date) -> dict[str, pd.Series]:
                      (list(TESTS), end))
     for t in TESTS:
         part = tests[tests["test"] == t] if not tests.empty else tests
-        out[t] = _series(part, "value", 1 / 60 if t == "time_trial_5k" else 1.0) if not part.empty \
-            else pd.Series(dtype=float)
+        out[t] = _series(part, "value", 1 / 60 if t == "time_trial_5k" else 1.0) if not part.empty else _empty()
     return out
 
 

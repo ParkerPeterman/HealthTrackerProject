@@ -163,6 +163,26 @@ def demo(days: int = typer.Option(180, help="Days of synthetic history"),
 
 
 @app.command()
+def evaluate(days: str = typer.Option("14,30,60,120", help="Comma-separated demo lengths"),
+             out: Path = typer.Option(None, help="Write the markdown report here"),
+             keep: bool = typer.Option(False, help="Keep the scratch databases"),
+             no_runtime: bool = typer.Option(False, help="Skip the nightly and weekly timing runs")) -> None:
+    """Section 13: run the methods on demo athletes of several lengths and report what they find."""
+    from healthtracker.sample.evaluate import evaluate_at, render
+
+    _setup_logging()
+    results = []
+    for n in (int(x) for x in days.split(",") if x.strip()):
+        typer.echo(f"evaluating {n} days ...")
+        results.append(evaluate_at(n, keep=keep, runtime=not no_runtime))
+    text = render(results)
+    if out:
+        out.write_text(text + "\n")
+        typer.echo(f"wrote {out}")
+    typer.echo(text)
+
+
+@app.command()
 def experiment(hypothesis_id: int, start: str = typer.Option(None), days: int = 14,
                seed: int = typer.Option(None)) -> None:
     """Start a randomized self-experiment for a hypothesis."""

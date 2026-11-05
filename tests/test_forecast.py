@@ -35,6 +35,7 @@ def test_a_steady_trend_beats_naive_and_intervals_cover():
 def test_too_little_data_gives_no_forecast():
     s = daily([20.0, 19.8, 19.9])
     assert forecast_series("sprint_10m", s, END) is None
+    assert forecast_series("weight_kg", pd.Series(dtype=float), END) is None  # a brand-new athlete
     assert backtest(s, test=28, min_obs=5, window=0)["beats_naive"] is False
 
 

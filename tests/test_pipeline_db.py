@@ -77,6 +77,12 @@ def test_rerunning_a_day_is_idempotent(seeded, conn):
     with connect() as c:
         after = counts(c)
     assert before == after
+    # Section 13: the run's wall time is recorded against its 2-minute budget.
+    assert report.runtime_note.startswith("runtime:") and "over the" not in report.runtime_note, report.runtime_note
+    with connect() as c:
+        last = c.execute("""SELECT step, status, rows_written FROM analytics.pipeline_run
+                            WHERE job = 'nightly' ORDER BY id DESC LIMIT 1""").fetchone()
+    assert last["step"] == "runtime" and last["status"] == "ok" and last["rows_written"] < 120
 
 
 def test_weekly_plan_respects_games(seeded, conn):

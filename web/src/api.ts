@@ -571,6 +571,16 @@ export const PHASE_LABEL: Record<Phase, string> = {
 };
 
 // ------------------------------------------------------------------ session library (F2)
+/** Section 13: one week's old-vs-new comparison for one component. */
+export interface ShadowLogRow {
+  week_start: string;
+  component: string;
+  n_compared: number;
+  n_disagree: number;
+  examples: Record<string, unknown>[];
+  summary: string;
+}
+
 /** F5: next weight and reps for a lift, from the RIR of its last session. */
 export interface LiftSuggestion {
   exercise: string;
