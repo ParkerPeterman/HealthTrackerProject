@@ -14,6 +14,7 @@ import psycopg
 from healthtracker.components import is_live
 from healthtracker.db import execute, fetch_all, insert, upsert
 from healthtracker.jsonutil import to_jsonable
+from healthtracker.recommend.fair import decision_state
 from healthtracker.rules.base import RuleContext
 from healthtracker.rules.engine import Evaluated
 from healthtracker.units import Display, fmt_hour
@@ -244,6 +245,7 @@ def write_recommendation(conn: psycopg.Connection, ctx: RuleContext, results: li
         returning="id")[0]
     execute(conn, "DELETE FROM analytics.recommendation_action WHERE recommendation_id = %s", (rec_id,))
     hidden = dominated_actions(fired)
+    state = decision_state(ctx.today)
     n = 0
     for e in fired:
         for a in e.result.actions:
@@ -253,6 +255,7 @@ def write_recommendation(conn: psycopg.Connection, ctx: RuleContext, results: li
                 "action_text": a.action_text, "metric": a.metric, "comparator": a.comparator,
                 "target_value": a.target_value, "target_value_high": a.target_value_high,
                 "evaluate_on": a.evaluate_on, "outcome_metric": a.outcome_metric,
+                "state": state,  # G5: the decision-time state, for fair grading
             })
             n += 1
     return 1 + n  # the recommendation row plus its actions

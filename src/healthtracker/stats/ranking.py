@@ -112,13 +112,14 @@ def rank(cands: list[dict], acting: set[str], last_shown: dict[str, dict]) -> li
 
 
 def run_ranking(conn: psycopg.Connection, as_of: date, features=None) -> int:
+    from healthtracker.recommend.fair import follow_through_candidates
     from healthtracker.stats.anomaly import anomaly_candidates
     from healthtracker.stats.insight_types import candidates
     from healthtracker.stats.insights import load_features_frame
 
     f = load_features_frame(conn, as_of) if features is None else features
     cands = effect_candidates(conn, as_of) + (candidates(conn, f, as_of) if not f.empty else []) + \
-        anomaly_candidates(conn, as_of)  # G4 unusual days, G3 shifts
+        anomaly_candidates(conn, as_of) + follow_through_candidates(conn, as_of)  # G4/G3, G5
     week = as_of - timedelta(days=as_of.weekday())
     prev = {r["key"]: r for r in fetch_all(conn, """SELECT DISTINCT ON (key) key, estimate, p FROM analytics.weekly_insight
                                                     WHERE shown AND week_start < %s

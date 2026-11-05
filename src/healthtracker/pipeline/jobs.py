@@ -128,6 +128,12 @@ def _session_response(conn, d: date) -> int:
     return build_session_response(conn, d)
 
 
+def _advice_grading(conn, d: date) -> int:
+    from healthtracker.recommend.fair import grade_advice
+
+    return grade_advice(conn, d)
+
+
 def _change_points(conn, d: date) -> int:
     from healthtracker.stats.changepoint import build_change_points
 
@@ -250,6 +256,7 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "change_points", step(_change_points), report)  # G3 (shadow)
     run_step("weekly", "medication_analysis", step(_med_analysis), report)  # H3, sensitive, shadow
     run_step("weekly", "parameter_tuning", step(run_tuning), report)
+    run_step("weekly", "advice_grading", step(_advice_grading), report)  # G5, before promotion
     run_step("weekly", "rule_promotion", step(run_promotion), report)
     run_step("weekly", "experiments", step(update_experiments), report)
     run_step("weekly", "goal_check", step(run_goal_check), report)
@@ -322,6 +329,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                     run_ranking(conn, d)
                     _med_analysis(conn, d)
                     run_tuning(conn, d)
+                    _advice_grading(conn, d)
                     run_promotion(conn, d)
                     update_experiments(conn, d)
                     run_goal_check(conn, d)

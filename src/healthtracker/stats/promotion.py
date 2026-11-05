@@ -1,7 +1,9 @@
 """Weekly: propose promoting shadow rules that earn it, and retiring ones that hurt.
 
 Evidence comes from graded actions: outcome_delta on days a rule's advice was
-followed vs not followed (analytics.v_rule_performance, plus a Welch t-test).
+followed vs not followed, compared only within the same decision-time state (G5,
+recommend/fair.py), because advice gets skipped on bad days. The p-value is from the
+matched difference and its standard error; the raw difference is kept in the evidence.
 Safety rules are never retired automatically.
 """
 
@@ -15,21 +17,13 @@ from scipy import stats as sps
 
 from healthtracker.db import execute, fetch_all, fetch_one, insert
 from healthtracker.quality import activation_problem
+from healthtracker.recommend.fair import fair_compare, graded_rows
 
 MIN_GRADED = 20
 MIN_PER_ARM = 8
 
 # Rules that also need a supported personal finding before going live.
 PERSONAL_EVIDENCE = {"SLEEP_CAFFEINE_CUTOFF": ("last_caffeine_hour", "sleep_score")}
-
-
-def _arms(conn: psycopg.Connection, rule_id: str) -> tuple[list[float], list[float]]:
-    rows = fetch_all(conn, """SELECT followed, outcome_delta FROM analytics.recommendation_action
-                              WHERE rule_id = %s AND followed IS NOT NULL AND outcome_delta IS NOT NULL""",
-                     (rule_id,))
-    yes = [float(r["outcome_delta"]) for r in rows if r["followed"]]
-    no = [float(r["outcome_delta"]) for r in rows if not r["followed"]]
-    return yes, no
 
 
 def _has_supported_insight(conn: psycopg.Connection, exposure_prefix: str, outcome: str) -> bool:
@@ -42,28 +36,32 @@ def _has_supported_insight(conn: psycopg.Connection, exposure_prefix: str, outco
 
 def run_promotion(conn: psycopg.Connection, as_of: date) -> int:
     n = 0
+    graded = graded_rows(conn)
     for r in fetch_all(conn, "SELECT * FROM analytics.rule WHERE status IN ('shadow','active')"):
         rule_id = r["rule_id"]
         if rule_id == "EXPERIMENT_PROTOCOL":
             continue
-        yes, no = _arms(conn, rule_id)
-        if len(yes) + len(no) < MIN_GRADED or min(len(yes), len(no)) < MIN_PER_ARM:
+        rows = graded.get(rule_id, [])
+        g = fair_compare(rows)
+        yes, no = g["n_matched_followed"], g["n_matched_not"]
+        if len(rows) < MIN_GRADED or min(yes, no) < MIN_PER_ARM or g["matched_diff"] is None or not g["se"]:
             continue
-        diff = sum(yes) / len(yes) - sum(no) / len(no)
-        p = float(sps.ttest_ind(yes, no, equal_var=False).pvalue)
-        evidence = {"n_followed": len(yes), "n_not_followed": len(no), "mean_diff": round(diff, 3),
-                    "p_value": round(p, 4)}
+        diff = float(g["matched_diff"])
+        p = float(2 * sps.norm.sf(abs(diff) / float(g["se"])))
+        evidence = {"n_followed": yes, "n_not_followed": no, "mean_diff": round(diff, 3), "p_value": round(p, 4),
+                    "raw_diff": g["raw_diff"], "matched_on": "HRV band, short night, travel or game day",
+                    "strata_used": g["strata_used"]}
         new_status, reason = None, None
         if r["status"] == "shadow" and diff > 0 and p < 0.10:
             if rule_id in PERSONAL_EVIDENCE and not _has_supported_insight(conn, *PERSONAL_EVIDENCE[rule_id]):
                 continue
             new_status = "active"
-            reason = (f"Outcomes were {diff:+.2f} better on the {len(yes)} days its advice was followed "
-                      f"than the {len(no)} days it wasn't (p={p:.3f}).")
+            reason = (f"On comparable days, outcomes were {diff:+.2f} better on the {yes} days its advice was "
+                      f"followed than the {no} days it wasn't (p={p:.3f}).")
         elif r["status"] == "active" and r["evidence_level"] != "safety" and diff < 0 and p < 0.05:
             new_status = "retired"
-            reason = (f"Following it was associated with worse outcomes ({diff:+.2f}, p={p:.3f}, "
-                      f"{len(yes)} vs {len(no)} days).")
+            reason = (f"On comparable days, following it was associated with worse outcomes ({diff:+.2f}, "
+                      f"p={p:.3f}, {yes} vs {no} days).")
         if not new_status:
             continue
         pending = fetch_one(conn, """SELECT id FROM analytics.rule_status_change

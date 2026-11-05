@@ -172,6 +172,14 @@ def decide_rule_status(proposal_id: int, body: DecisionIn, conn: psycopg.Connect
     return {"ok": True}
 
 
+@router.get("/advice-grades")
+def advice_grades(conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+    """G5: what following each rule's advice did on comparable days, with the raw comparison beside it."""
+    from healthtracker.recommend.fair import latest_grades
+
+    return to_jsonable(sorted(latest_grades(conn, local_date(conn)).values(), key=lambda r: r["rule_id"]))
+
+
 @router.get("/rules")
 def rules(conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     rows = fetch_all(conn, """SELECT r.*, p.n_actions, p.followed_rate, p.avg_outcome_when_followed,
