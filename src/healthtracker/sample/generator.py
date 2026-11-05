@@ -13,6 +13,16 @@ Planted effects, so the weekly stats job has something true to find:
   * a 5-day illness, 3 days of travel, an ankle sprain with rehab, a bench plateau
   * a 12-day overreaching block (HRV sliding ~17%, resting HR up ~3.6 bpm, lower energy)
     and three isolated bad nights (HRV -30% for one night) for the A2 bands
+Section 13 additions, each deterministic or on its own random stream so nothing above moves:
+  * interaction: a game or tempo run after a night under 7 h costs another 10% of next-morning
+    HRV beyond the two added up (C4)
+  * change point: from 72% of the way through, bedtime and wake time move 45 min later for
+    good (a schedule change; G3 on the sleep midpoint)
+  * temperature: run HR rises 0.4 bpm per degree C above 12 C at the same pace, with synthetic
+    archive weather for a demo home point (41.9, -87.6) in the weather cache (A7, D3). Sessions
+    get that weather only when a home location is set (HOME_LAT / HOME_LON)
+  * groin tweaks: occasional one-tap events, five times as likely the day after a game or
+    tempo run (F2, the Copenhagen level)
 """
 
 from __future__ import annotations
@@ -31,6 +41,8 @@ from healthtracker.ingest.raw import store_raw
 
 TZ = ZoneInfo("America/Chicago")
 MILE = 1609.344
+DEMO_POINT = (41.9, -87.6)        # rounded demo home (central Chicago), for the synthetic weather
+HEAT_BPM_PER_C, HEAT_FROM_C = 0.4, 12.0
 
 FOODS = [
     # name, serving, g, kcal, protein, carbs, fat, fiber, sugar, sodium, caffeine, alcohol, micros
@@ -105,6 +117,7 @@ class Generator:
         self.rng = np.random.default_rng(seed)
         self.over_start = int(days * 0.40)                               # A2 overreaching block
         self.bad_nights = {int(days * f) for f in (0.70, 0.85, 0.95)}  # A2 isolated bad nights
+        self.schedule_shift = int(days * 0.72)                           # G3: bedtime 45 min later from here
         self.end = end or datetime.now(TZ).date()
         self.start = self.end - timedelta(days=days - 1)
         self.days = days
@@ -204,13 +217,16 @@ class Generator:
     def run(self) -> dict:
         self.seed_reference()
         plans = self.plan()
+        self.temps = self._weather()  # own stream: temperatures for the runs' heat effect
         rng = self.rng
+        groin_rng = np.random.default_rng(self.seed + 303)  # own stream: occasional groin tweaks
         c = self.conn
         counts = {"raw": 0, "workouts": 0, "food_entries": 0, "sets": 0}
         hrv_level, rhr_level, weight = 0.0, 0.0, 82.0
         prev: DayPlan | None = None
         prev2: DayPlan | None = None
         sleep_debt = 0.0
+        last_total: float | None = None  # the night ending yesterday, for the interaction
         hr_max = 194
         for i, p in enumerate(plans):
             d = p.d
@@ -245,6 +261,10 @@ class Generator:
                     score -= 6
             if prev2 and prev2.game:
                 hrv_mult *= 0.95
+            if prev and (prev.game or prev.run == "tempo") and last_total is not None and last_total < 420:
+                hrv_mult *= 0.90  # C4: a hard day after a short night costs more than the two add up to
+            if i >= self.schedule_shift:
+                bed_hour += 0.75  # G3: a lasting schedule change, 45 min later
             if p.sick or (prev and prev.sick):
                 hrv_mult *= 0.75
                 rhr += 7
@@ -282,6 +302,7 @@ class Generator:
                 "calendarDate": d.isoformat(), "lastNightAvg": round(hrv), "status": sleep_payload["hrvStatus"],
                 "weeklyAvg": round(62 * (1 + 0.05 * progress))}})
             sleep_debt = 0.7 * sleep_debt + max(0.0, 420 - total)
+            last_total = total
 
             # ---------------- daytime
             sessions = []  # (start dt, minutes, avg hr, kind)
@@ -339,6 +360,9 @@ class Generator:
                                                   "value": int(rng.integers(20, 45))}, returning=None)
             insert(c, "core.behavior_event", {"ts": local(d, 7.5), "type_code": "supplement", "value": 5,
                                               "note": "creatine 5 g"}, returning=None)
+            if groin_rng.random() < (0.10 if prev and (prev.game or prev.run == "tempo") else 0.02):
+                insert(c, "core.behavior_event", {"ts": local(d, 12), "type_code": "groin_tweak",
+                                                  "note": "felt it on a cut"}, returning=None)
             prev2, prev = prev, p
 
         self._future_games()
@@ -434,6 +458,52 @@ class Generator:
                 "medication_id": mid, "date": p.d, "status": status,
                 "taken_at": local(p.d, hour) if status == "taken" else None}, returning=None)
 
+    def _weather(self) -> dict[datetime, float]:
+        """Synthetic Open-Meteo archive weather for the demo point, hourly: a seasonal curve, a daily
+        swing, and day-to-day anomalies. Stored in the weather cache like a real response. Own
+        random stream."""
+        rng = np.random.default_rng(self.seed + 404)
+        first = datetime.combine(self.start - timedelta(days=1), time(0), TZ).astimezone(UTC)
+        hours = (self.days + 2) * 24
+        anomaly, temps, dews, times = 0.0, [], [], []
+        out: dict[datetime, float] = {}
+        for h in range(hours):
+            ts = first + timedelta(hours=h)
+            if h % 24 == 0:
+                anomaly = 0.7 * anomaly + rng.normal(0, 2.5)
+            doy = ts.astimezone(TZ).timetuple().tm_yday
+            local_h = ts.astimezone(TZ).hour
+            t = 10 + 13 * math.sin(2 * math.pi * (doy - 105) / 365) + 5 * math.cos(2 * math.pi * (local_h - 15) / 24) + anomaly
+            temps.append(round(t, 1))
+            dews.append(round(t - 4 - abs(rng.normal(0, 2)), 1))
+            times.append(int(ts.timestamp()))
+            out[ts] = t
+        days = sorted({(first + timedelta(hours=h)).astimezone(TZ).date() for h in range(hours)})
+        daily = {"time": [int(datetime.combine(d, time(0), TZ).timestamp()) for d in days],
+                 "temperature_2m_max": [], "temperature_2m_min": [], "precipitation_sum": [], "snowfall_sum": [],
+                 "wind_speed_10m_max": [], "weather_code": []}
+        for d in days:
+            vals = [v for ts, v in out.items() if ts.astimezone(TZ).date() == d]
+            daily["temperature_2m_max"].append(round(max(vals), 1))
+            daily["temperature_2m_min"].append(round(min(vals), 1))
+            daily["precipitation_sum"].append(0.0)
+            daily["snowfall_sum"].append(0.0)
+            daily["wind_speed_10m_max"].append(12.0)
+            daily["weather_code"].append(1)
+        payload = {"request": {"latitude": DEMO_POINT[0], "longitude": DEMO_POINT[1], "synthetic": True},
+                   "kind": "archive", "point": list(DEMO_POINT),
+                   "response": {"hourly": {"time": times, "temperature_2m": temps, "dew_point_2m": dews,
+                                           "wind_speed_10m": [10.0] * hours, "precipitation": [0.0] * hours,
+                                           "snowfall": [0.0] * hours, "weather_code": [1] * hours},
+                                "daily": daily}}
+        store_raw(self.conn, "open_meteo", "archive", self.start, payload)
+        return out
+
+    def temp_at(self, ts: datetime) -> float:
+        """Synthetic temperature at the hour of `ts` (UTC hour key)."""
+        key = ts.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+        return float(self.temps.get(key, 10.0))
+
     def _future_games(self) -> None:
         for k in range(1, 22):
             d = self.end + timedelta(days=k)
@@ -449,9 +519,11 @@ class Generator:
         if p.run == "easy" and rng.random() < 0.5:
             miles.append(143)
         laps, records, t = [], [], 0.0
+        heat = HEAT_BPM_PER_C * max(0.0, self.temp_at(start) - HEAT_FROM_C)  # A7/D3: same pace, higher HR
         for k, target_hr in enumerate(miles, start=1):
             hr = target_hr + rng.normal(0, 2)
             speed = (0.9 + 0.0155 * hr) * (1 + 0.05 * progress) * (1 + rng.normal(0, 0.015))
+            hr += heat
             dur = MILE / speed
             laps.append({"lapIndex": k, "distance": MILE, "duration": round(dur, 1),
                          "averageHR": round(hr), "averageRunCadence": round(168 + (speed - 3) * 8)})
@@ -476,6 +548,7 @@ class Generator:
             "duration": round(t, 1), "elapsedDuration": round(t + 40, 1), "distance": round(dist, 1),
             "averageHR": avg_hr, "maxHR": int(max(lap["averageHR"] for lap in laps) + 8),
             "averageRunningCadenceInStepsPerMinute": 170, "elevationGain": round(20 + rng.normal(0, 5), 1),
+            "startLatitude": DEMO_POINT[0] + 0.02, "startLongitude": DEMO_POINT[1] - 0.03,
             "calories": int(dist / 1000 * 70), "activityTrainingLoad": round(t / 60 * rpe * 0.35, 1),
         }
         detail = {"activityId": act_id, "summaryDTO": {"duration": round(t, 1)}}

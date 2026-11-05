@@ -7,7 +7,12 @@ from datetime import date
 
 import pytest
 
-from healthtracker.config import get_settings
+# The demo athlete lives at a synthetic home point (central Chicago, rounded to 41.9, -87.6) with
+# synthetic weather in the cache, so sessions get weather the way they would at home (A7, D3).
+# Set before anything reads the settings; a real .env home never reaches the tests.
+os.environ["HOME_LAT"], os.environ["HOME_LON"] = "41.88", "-87.63"
+
+from healthtracker.config import get_settings  # noqa: E402
 
 
 def _test_url() -> str | None:

@@ -68,6 +68,7 @@ def test_archive_wins_and_sessions_get_weather(seeded, tx, monkeypatch):
     from healthtracker.ingest.raw import store_raw
 
     conn = tx
+    conn.execute("DELETE FROM raw.ingest WHERE source = 'open_meteo'")  # the demo's synthetic weather
     monkeypatch.setattr(wx, "get_settings", lambda: SimpleNamespace(home_lat=41.88, home_lon=-87.63, weather_enabled=True))
     run = fetch_one(conn, """SELECT w.* FROM core.v_workout w WHERE w.sport = 'run' AND w.start_lat IS NOT NULL
                              ORDER BY start_ts DESC LIMIT 1""")
@@ -91,6 +92,7 @@ def test_pull_calls_only_open_meteo(seeded, tx, monkeypatch):
     from healthtracker.db import fetch_one
 
     conn = tx
+    conn.execute("DELETE FROM raw.ingest WHERE source = 'open_meteo'")  # the demo's synthetic weather
     seen: list[httpx.Request] = []
 
     def handler(req: httpx.Request) -> httpx.Response:

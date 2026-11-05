@@ -51,7 +51,8 @@ def test_one_scale_in_the_demo(seeded, conn):
     assert runs and all(r["load_method"] == "trimp" for r in runs)
     games = [r for r in rows if r["session_type"] == "game"]
     assert games and all(r["load_method"] == "srpe_calibrated" and r["trimp"] is None for r in games)
-    assert all(r["internal_load"] == pytest.approx(round(r["srpe"] * cal["factor"], 1)) for r in games)
+    # The stored factor has three decimals; loads use the full-precision one.
+    assert all(r["internal_load"] == pytest.approx(r["srpe"] * cal["factor"], abs=0.2) for r in games)
     check = fetch_one(conn, """SELECT count(*) AS bad FROM analytics.daily_features f
                                LEFT JOIN analytics.load_daily l ON l.date = f.date AND l.channel = 'internal'
                                WHERE abs(f.load_internal - coalesce(l.value, 0)) > 0.05""")
