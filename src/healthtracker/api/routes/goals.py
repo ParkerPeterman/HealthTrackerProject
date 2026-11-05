@@ -97,6 +97,16 @@ def forecasts(day: date | None = None, conn: psycopg.Connection = Depends(get_co
     return to_jsonable({"live": live, "forecasts": rows})
 
 
+@router.get("/change-points")
+def change_points(conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """G3: shifts and their candidate causes. Never anything from the medication tables."""
+    live = is_live(component_status(conn), "COMP_CHANGE_POINTS")
+    rows = fetch_all(conn, """SELECT metric, date, prob, mean_before, mean_after, shift, shift_sd, n_before, n_after,
+                                     summary, causes, computed_on
+                              FROM analytics.change_point ORDER BY date DESC, metric""")
+    return to_jsonable({"live": live, "change_points": rows})
+
+
 @router.get("/goals/metrics")
 def goal_metrics(day: date | None = None, conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """What goals can track, with today's values, so the goal form can prefill sensible targets."""

@@ -11,7 +11,8 @@ Rules that hold everywhere in this package:
 """
 
 SENSITIVE_TABLES = ("core.medication", "core.medication_change", "core.medication_log",
-                    "analytics.medication_daily", "analytics.medication_message")
+                    "analytics.medication_daily", "analytics.medication_message", "analytics.medication_effect",
+                    "analytics.change_point_medication")
 # Names that mark a feature or exposure as medication-derived (never an experiment or a lever).
 SENSITIVE_PREFIXES = ("med_", "medication", "dose_", "adherence_", "consecutive_missed", "days_since_dose_change")
 
