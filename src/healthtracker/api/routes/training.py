@@ -26,6 +26,7 @@ from healthtracker.planning.library import (
     hr_target,
     load_library,
 )
+from healthtracker.planning.progression import deload_on, strength_hints
 from healthtracker.profile import load_profile
 
 router = APIRouter(prefix="/api", tags=["training"])
@@ -337,15 +338,24 @@ def _library_view(conn: psycopg.Connection, day: date) -> tuple[dict, list[dict]
     state = day_state(conn, day, profile.timezone)
     meta, zones, factor = exercise_meta(conn), current_zones(conn), current_factor(conn)
     level, why = copenhagen_level(conn, day, profile.timezone)
-    out = []
+    deload = deload_on(conn, day)
+    rows = []
     for e in load_library(conn).values():
         exercises, notes = exercises_for(e, state, meta)
+        rows.append((e, exercises, notes))
+    # F5: each lift's next weight from the RIR of its last session.
+    lifts = [x["exercise"] for e, exs, _ in rows if e["category"] == "strength" for x in exs]
+    hints = strength_hints(conn, lifts, day, profile.timezone, profile.display_units, deload)
+    out = []
+    for e, exercises, notes in rows:
         reasons = check(e, state, meta)
         if e["progression_group"] == "copenhagen" and e["level"] != level:
             reasons.append(f"you're on level {level} ({why})")
+        if e["category"] == "strength":
+            exercises = [{**x, "suggestion": hints.get(x["exercise"])} for x in exercises]
         out.append({**e, "exercises": exercises, "changes": notes, "fits": not reasons, "reasons": reasons,
                     "hr_target": hr_target(e, zones), "expected_load": expected_load(e, factor)})
-    return {**state.as_dict(), "copenhagen_level": level, "copenhagen_reason": why}, out
+    return {**state.as_dict(), "copenhagen_level": level, "copenhagen_reason": why, "deload_week": deload}, out
 
 
 @router.get("/session-library")

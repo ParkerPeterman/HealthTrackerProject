@@ -561,7 +561,21 @@ export const PHASE_LABEL: Record<Phase, string> = {
 };
 
 // ------------------------------------------------------------------ session library (F2)
-export interface LibraryExercise { exercise: string; sets: number; reps: string; note?: string }
+/** F5: next weight and reps for a lift, from the RIR of its last session. */
+export interface LiftSuggestion {
+  exercise: string;
+  last_date: string;
+  last_kg: number;
+  last_reps: number;
+  last_rir: number | null;
+  rir_assumed: boolean;     // RIR not logged: counted as 2
+  step_pct: number;
+  next_kg: number;
+  next_reps: number;
+  fewer_sets: number;       // 1 in a deload week
+  why: string;
+}
+export interface LibraryExercise { exercise: string; sets: number; reps: string; note?: string; suggestion?: LiftSuggestion | null }
 export interface LibrarySession {
   code: string;
   name: string;
@@ -597,6 +611,7 @@ export interface LibraryState {
   shoulder_flagged: boolean;
   copenhagen_level: number;
   copenhagen_reason: string;
+  deload_week: boolean;     // F5: the holiday deload or a scheduled deload week
 }
 export interface LibraryData { state: LibraryState; sessions: LibrarySession[] }
 export interface ShoulderState {

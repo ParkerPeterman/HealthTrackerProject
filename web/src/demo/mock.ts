@@ -8,7 +8,7 @@ import {
   type Journal, type LiftSet, type Meal, type Planned, type Profile, type Proposals, type Recommendation,
   type Goal, type GoalProgress, type PerfTest, type Rule, type SavedMeal, type Target, type TargetProposal, type TestKey,
   type TagCode, type TestProtocol, type TestsData, type Workout, type ZonesData, type LibraryData, type LibrarySession,
-  type ShoulderState,
+  type ShoulderState, type LiftSuggestion,
 } from "../api";
 import { addDays, isoDate, parseIso } from "../dates";
 
@@ -1105,17 +1105,22 @@ const LIB: Omit<LibrarySession, "changes" | "fits" | "reasons" | "expected_load"
     source_ref: "Harøy et al. 2019 (Adductor Strengthening Programme: 41% fewer groin problems)",
     exercises: [{ exercise: "Copenhagen adduction L1", sets: 2, reps: "6-10 each side" }] },
 ];
+const BENCH_HINT = (d: string): LiftSuggestion => ({
+  exercise: "Bench press", last_date: addDays(d, -5), last_kg: 80, last_reps: 6, last_rir: 2, rir_assumed: false,
+  step_pct: 2.5, next_kg: 82.5, next_reps: 6, fewer_sets: 0, why: "RIR 2 last time: +2.5%",
+});
 function libraryView(d: string): LibraryData {
   const sore = shoulderView(d).flagged;
   return {
     state: { date: d, phase: "base", hrv_status: null, restrictions: [], shoulder_flagged: sore, copenhagen_level: 1,
-      copenhagen_reason: "starting at level 1" },
+      copenhagen_reason: "starting at level 1", deload_week: false },
     sessions: LIB.map((s) => {
       const swap = sore && s.code === "strength_upper";
       const mid = Math.round((s.duration_min_lo + s.duration_min_hi) / 2);
       return {
         ...s, fits: true, reasons: [],
-        exercises: swap ? s.exercises.map((e) => e.exercise === "Overhead press" ? { ...e, exercise: "Landmine press" } : e) : s.exercises,
+        exercises: (swap ? s.exercises.map((e) => e.exercise === "Overhead press" ? { ...e, exercise: "Landmine press" } : e) : s.exercises)
+          .map((e) => e.exercise === "Bench press" ? { ...e, suggestion: BENCH_HINT(d) } : e),
         changes: swap ? ["Overhead press becomes Landmine press while the shoulders are sore"] : [],
         hr_target: s.code === "vo2_3x3" ? { bpm: [177, 187], pct_max: [90, 95], max_hr: 197, provisional: false } : null,
         expected_load: { minutes: mid, internal: Math.round(mid * s.rpe * 0.4), plyo_contacts: 0, sprint_m: 0, shoulder_min: 0 },

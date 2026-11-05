@@ -1,5 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, PHASE_LABEL, type LibraryData, type LibrarySession, type LibraryState } from "../api";
+import { api, PHASE_LABEL, type LibraryData, type LibrarySession, type LibraryState, type LiftSuggestion } from "../api";
+import { useUnits } from "../components/ui";
+import { fromKg, weightUnit, type Units } from "../units";
+
+/** A weight on the plates' step: whole numbers when they are whole. */
+function plateWeight(kg: number, u: Units): string {
+  const v = Math.round(fromKg(kg, u) * 10) / 10;
+  return `${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1)} ${weightUnit(u)}`;
+}
+
+/** F5: "Next 82.5 kg × 6 (last 80 kg × 6; RIR 2 last time: +2.5%)". */
+function liftHint(h: LiftSuggestion, u: Units): string {
+  if (h.last_kg <= 0) return `Next ${h.next_reps} reps (last ${h.last_reps}; ${h.why})`;
+  return `Next ${plateWeight(h.next_kg, u)} × ${h.next_reps} (last ${plateWeight(h.last_kg, u)} × ${h.last_reps}; ${h.why})`;
+}
 
 /** F2: one library session as it applies on `date`: target, structure, exercises with today's swaps. */
 export function LibraryDetail({ code, date, addons }: { code: string; date: string; addons?: string[] | null }) {
@@ -26,7 +40,9 @@ export function LibraryDetail({ code, date, addons }: { code: string; date: stri
 }
 
 function SessionBody({ s, state, compact }: { s: LibrarySession; state: LibraryState; compact?: boolean }) {
+  const units = useUnits();
   const load = s.expected_load;
+  const deloadSets = state.deload_week && s.category === "strength";
   const loadBits = [
     `${s.duration_min_lo}–${s.duration_min_hi} min`, `RPE ${s.rpe}`,
     load.sprint_m ? `${load.sprint_m} m sprinting` : null, load.plyo_contacts ? `${load.plyo_contacts} jump contacts` : null,
@@ -47,10 +63,14 @@ function SessionBody({ s, state, compact }: { s: LibrarySession; state: LibraryS
       {s.exercises.length > 0 && (
         <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
           {s.exercises.map((e) => (
-            <li key={e.exercise}>{e.exercise}: {e.sets} × {e.reps}{e.note ? ` (${e.note})` : ""}</li>
+            <li key={e.exercise}>
+              {e.exercise}: {deloadSets ? Math.max(1, e.sets - 1) : e.sets} × {e.reps}{e.note ? ` (${e.note})` : ""}
+              {e.suggestion && <div className="tiny muted">{liftHint(e.suggestion, units)}</div>}
+            </li>
           ))}
         </ul>
       )}
+      {deloadSets && <div className="tiny muted">Deload week: the same weights, one set fewer on each lift.</div>}
       {s.changes.map((c) => <div key={c} className="tiny warn">{c}</div>)}
       {s.progression_group === "copenhagen" && (
         <div className="tiny muted">Copenhagen level {state.copenhagen_level}: {state.copenhagen_reason}.</div>
