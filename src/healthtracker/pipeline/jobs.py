@@ -108,6 +108,12 @@ def _weather_step(d: date) -> int:
         return pull_weather(conn, d)
 
 
+def _long_term(conn, d: date) -> int:
+    from healthtracker.features.long_term import build_health_weekly, build_long_trends
+
+    return build_long_trends(conn, d) + build_health_weekly(conn, d)
+
+
 def _session_response(conn, d: date) -> int:
     from healthtracker.features.session_response import build_session_response
 
@@ -218,6 +224,7 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "insight_ranking", step(run_ranking), report)  # C1-C4 (shadow)
     run_step("weekly", "fitness_fatigue", step(_fitness_fatigue), report)  # D2 (shadow)
     run_step("weekly", "session_response", step(_session_response), report)  # D5 (shadow)
+    run_step("weekly", "long_term", step(_long_term), report)  # E4
     run_step("weekly", "medication_analysis", step(_med_analysis), report)  # H3, sensitive, shadow
     run_step("weekly", "parameter_tuning", step(run_tuning), report)
     run_step("weekly", "rule_promotion", step(run_promotion), report)
@@ -309,4 +316,10 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
             return build_readiness(conn, end, days=(end - start).days + 1)
 
     run_step("backfill", "readiness", readiness, report)
+
+    def long_term() -> int:
+        with connect() as conn:
+            return _long_term(conn, end)
+
+    run_step("backfill", "long_term", long_term, report)
     return report
