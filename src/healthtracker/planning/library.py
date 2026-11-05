@@ -141,6 +141,12 @@ def check(entry: dict, state: DayState, meta: dict[str, dict]) -> list[str]:
     return reasons
 
 
+def mid_minutes(e: dict) -> int:
+    """Middle of a session's duration range, on a 5-minute step inside the range."""
+    lo, hi = e["duration_min_lo"], e["duration_min_hi"]
+    return int(min(hi, max(lo, 5 * round((lo + hi) / 10))))
+
+
 def expected_load(entry: dict, factor: float, minutes: int | None = None) -> dict:
     """Load on each A6 channel: internal load is minutes x RPE on the TRIMP scale (my calibration factor)."""
     m = minutes or round((entry["duration_min_lo"] + entry["duration_min_hi"]) / 2)

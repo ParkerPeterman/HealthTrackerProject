@@ -33,7 +33,11 @@ Code decides every session, day, and size; the LLM is not involved.
    range, everything else shorter by the deload factor, fewer sprint and jump reps, nothing
    lengthened back toward the target, optional sessions dropped while over it, and the VO2
    level held.
-4. Output. Each session carries one structured reason. Plans are versioned: the same inputs
+4. Health (F6, planning/health.py): the WHO weekly aerobic minutes and strength days, counted
+   from the planned sessions; easy runs lengthen toward 150 minutes inside the caps (not in a
+   deload or after recovery flags); a sleep-regularity note when the SRI is low; the protein
+   target in grams a day.
+5. Output. Each session carries one structured reason. Plans are versioned: the same inputs
    give the same plan and no new version. Each week's plan is graded afterwards on
    adherence (planned sessions matched to workouts) and response.
 
@@ -55,6 +59,7 @@ from healthtracker.db import execute, fetch_all, fetch_one, insert, upsert
 from healthtracker.features.load import current_factor
 from healthtracker.ingest.weather import ATTRIBUTION, bad_for_outdoors, daily_forecast
 from healthtracker.jsonutil import to_jsonable
+from healthtracker.planning.health import gather_protein, gather_sleep, plan_health, render_health
 from healthtracker.planning.library import (
     DayState,
     active_restrictions,
@@ -64,6 +69,7 @@ from healthtracker.planning.library import (
     exercise_meta,
     exercises_for,
     load_library,
+    mid_minutes,
 )
 from healthtracker.planning.prehab import shoulder_state
 from healthtracker.planning.progression import phase_week, progression_check, scheduled_deload
@@ -73,7 +79,7 @@ from healthtracker.planning.templates import GOAL_ROLES, ROTATIONS, TEMPLATES, S
 from healthtracker.profile import load_profile
 from healthtracker.rules.context import load_injuries, load_params
 
-PLANNER_VERSION = "f5.1"
+PLANNER_VERSION = "f6.1"
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAY_WORDS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 LOWER = {"quads", "hamstrings", "glutes", "calves", "adductors"}
@@ -110,6 +116,8 @@ class PlanInputs:
     weather: dict[date, dict] = field(default_factory=dict)  # home daily forecast (A7)
     phase_week: int | None = None                # week of the phase (1 = its first week)
     progress: tuple[bool, str] = (True, "recovery looks normal: small progression")  # F5 check of last week
+    sleep: dict = field(default_factory=dict)    # sri (28 days) and weekend gap, once E1 is live (F6)
+    protein: dict | None = None                  # the protein target in g a day (F6)
 
     def p(self, name: str) -> float:
         return float(self.params.get("ANALYSIS_PLAN", {}).get(name, DEFAULTS[name]))
@@ -160,10 +168,7 @@ class Placed:
         return self.minutes + sum(_mid(a) for a in self.addons)
 
 
-def _mid(e: dict) -> int:
-    """Middle of the duration range, on a 5-minute step inside the range."""
-    lo, hi = e["duration_min_lo"], e["duration_min_hi"]
-    return int(min(hi, max(lo, 5 * round((lo + hi) / 10))))
+_mid = mid_minutes
 
 
 def kind(entry: dict) -> str | None:
@@ -486,6 +491,8 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
     fit_target(week, target, room, grow=not inp.deload_week)
     if inp.deloading:
         deload_trim(week, target)
+    skip = "a deload week" if inp.deloading else "recent recovery flags" if inp.caution else None
+    health = plan_health(week, room, extend=skip is None, skip_why=skip)
 
     sessions = []
     for p in sorted(week.placed, key=lambda p: (p.day, p.entry["day_order"], p.code)):
@@ -524,7 +531,7 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
         "intensity": {"run_minutes": run_min, "hard_minutes": hard_min,
                       "easy_pct": round((run_min - hard_min) / run_min * 100, 1) if run_min else None,
                       "easy_target_pct": easy_target},
-        "games": sorted(str(g) for g in week.games), "dropped": week.dropped,
+        "games": sorted(str(g) for g in week.games), "dropped": week.dropped, "health": health,
         "weather": weather, "attribution": ATTRIBUTION if inp.weather else None,
         "levels": {"vo2": list(inp.vo2_level), "copenhagen": list(inp.copenhagen)},
         "progression": {"phase_week": inp.phase_week, "deload_week": inp.deload_week,
@@ -667,6 +674,7 @@ def gather(conn: psycopg.Connection, week_start: date) -> PlanInputs:
         caution=caution, vo2_level=vo2_level(conn, week_start, phase, bool(caution), deload),
         copenhagen=copenhagen_level(conn, week_start, tz), goals=goals, params=params, factor=current_factor(conn),
         weather=daily_forecast(conn, week_start, end), phase_week=week_no,
+        sleep=gather_sleep(conn, f), protein=gather_protein(conn, as_of),
         progress=progression_check(conn, week_start, plan_p.get("progress_key_pct", DEFAULTS["progress_key_pct"])))
 
 
@@ -677,7 +685,7 @@ def inputs_snapshot(inp: PlanInputs) -> dict:
         "chronic_week": inp.chronic_week, "caution": inp.caution, "vo2_level": inp.vo2_level,
         "copenhagen": inp.copenhagen, "goals": inp.goals, "calibration_factor": inp.factor,
         "prev_game": inp.prev_game, "next_game": inp.next_game,
-        "phase_week": inp.phase_week, "progress": inp.progress,
+        "phase_week": inp.phase_week, "progress": inp.progress, "sleep": inp.sleep, "protein": inp.protein,
         "days": {str(d): s.as_dict() for d, s in inp.states.items()},
         "fixed": [{k: s.get(k) for k in ("date", "sport", "session_type", "planned_duration_min", "origin")}
                   for s in inp.fixed],
@@ -731,6 +739,9 @@ def render_plan(plan: dict) -> str:
     left_out = [x["slot"].replace("_", " ") for x in plan["dropped"] if not x["optional"]]
     if left_out:
         lines += ["", f"Left out this week: {', '.join(left_out)} (see each session's reason)."]
+    health = render_health(plan.get("health"))
+    if health:
+        lines += ["", *health]
     if plan.get("weather"):
         days = "; ".join(f"{date.fromisoformat(d):%a} {why}" for d, why in plan["weather"].items())
         lines += ["", f"Weather: {days}. Outdoor intervals move to a treadmill or bike; outdoor sprints wait."]
@@ -757,7 +768,7 @@ def write_week_plan(conn: psycopg.Connection, week_start: date) -> int:
                          (week_start,))["v"] or 0) + 1
     summary = {k: plan[k] for k in ("target_load", "reason", "chronic_weekly_load", "caps", "last_week", "planned",
                                     "fixed_load", "planned_load", "intensity", "games", "dropped", "levels", "names",
-                                    "weather", "attribution", "progression")}
+                                    "weather", "attribution", "progression", "health")}
     plan_id = insert(conn, "analytics.week_plan", {
         "week_start": week_start, "version": version, "phase": plan["phase"], "inputs": plan["inputs"],
         "summary": to_jsonable(summary), "plan_hash": h})
