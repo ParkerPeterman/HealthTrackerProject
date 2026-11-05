@@ -182,3 +182,28 @@ def test_micro_gap_ignores_nutrients_without_label_data():
                                         nutrient_coverage={"fiber_g": 1.0, "iron_mg": 0.3}), p)
     assert [g["nutrient"] for g in sparse.details["gaps"]] == ["fiber_g"]
     assert sparse.details["low_data_coverage"] == ["iron_mg"]
+
+
+ADJ = {"hard_rpe": 7, "short_sleep_min": 390, "soreness_high": 4, "energy_low": 2, "flags_for_rest": 2, "easy_rpe": 4}
+
+
+def test_daily_adjustment_keep_downgrade_swap_rest():
+    vo2 = {"date": D, "session_type": "hard", "sport": "run", "status": "planned", "planned_rpe": 8,
+           "session_code": "vo2_3x3", "notes": "VO2 intervals 3 x 3 min"}
+    easy_later = {"date": D + timedelta(days=2), "session_type": "easy", "sport": "run", "status": "planned"}
+    ok = features({D: {"sleep_total_min": 450, "soreness": 2, "energy": 4}})
+    band = {"ln_hrv": {"status": "within"}, "resting_hr": {"status": "within"}}
+
+    def run(f=ok, ms=band, planned=(vo2, easy_later)):
+        return catalog.train_daily_adjust(ctx(features=f, metric_status=ms, planned=list(planned)), ADJ)
+
+    assert run().details["decision"] == "keep" and not run().fired
+    r = run(ms={**band, "ln_hrv": {"status": "below"}})
+    assert r.details["decision"] == "downgrade" and r.actions[0].target_value == 4
+    short = features({D: {"sleep_total_min": 350, "soreness": 2, "energy": 4}})
+    r = run(f=short)
+    assert r.details["decision"] == "swap" and "easy session" in r.actions[0].action_text
+    assert run(f=short, planned=(vo2,)).details["decision"] == "downgrade"
+    r = run(f=short, ms={**band, "ln_hrv": {"status": "below"}})
+    assert r.details["decision"] == "rest" and r.actions[0].target_value == 3
+    assert not catalog.train_daily_adjust(ctx(features=ok, metric_status=band, planned=[easy_later]), ADJ).fired

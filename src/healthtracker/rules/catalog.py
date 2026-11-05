@@ -623,6 +623,61 @@ def inj_shoulder_swap(ctx: RuleContext, p: dict) -> RuleResult:
     return RuleResult(True, 2, details, [action])
 
 
+# ------------------------------------------------------------------ daily adjustment (F4, shadow)
+@rule("TRAIN_DAILY_ADJUST", outcome="hrv_z_30d@1")
+def train_daily_adjust(ctx: RuleContext, p: dict) -> RuleResult:
+    """Keep, downgrade, swap, or rest today's hard session from this morning's recovery markers.
+
+    Two or more warning signs: rest or very easy. A below-band 7-day HRV alone: downgrade
+    (intervals become an easy run, sprints become technique). Monday sprints after a weekend
+    game: technique only. One other sign: swap with a later easy day, or keep it easy.
+    """
+    hard = [s for s in ctx.planned_on(ctx.date) if s["session_type"] != "game"
+            and (s["session_type"] == "hard" or (s.get("planned_rpe") or 0) >= p["hard_rpe"])]
+    if not hard:
+        return RuleResult(False, details={"reason": "no hard session planned today"})
+    t = ctx.today
+    below = (ctx.metric_status.get("ln_hrv") or {}).get("status") == "below"
+    flags = []
+    if (ctx.metric_status.get("resting_hr") or {}).get("status") == "above":
+        flags.append("resting HR above its normal band")
+    if t.get("sleep_total_min") is not None and t["sleep_total_min"] < p["short_sleep_min"]:
+        flags.append(f"{int(t['sleep_total_min']) // 60}h{int(t['sleep_total_min']) % 60:02d} of sleep")
+    if (t.get("soreness") or 0) >= p["soreness_high"]:
+        flags.append(f"soreness {int(t['soreness'])}/5")
+    if t.get("energy") is not None and t["energy"] <= p["energy_low"]:
+        flags.append(f"energy {int(t['energy'])}/5")
+    weekend_game = ctx.date.weekday() == 0 and any(ctx.row(ctx.date - timedelta(days=k)).get("had_game") for k in (1, 2))
+    sprints = any((s.get("session_code") or "").startswith(("accel", "maxv", "cod")) for s in hard)
+    reasons = (["7-day HRV below its normal band"] if below else []) + flags
+    names = ", ".join(s.get("notes") or s["sport"] for s in hard)
+    easy = int(p["easy_rpe"])
+    details = {"sessions": [s.get("session_code") or s["session_type"] for s in hard], "hrv_below_band": below,
+               "flags": flags, "weekend_game": weekend_game}
+
+    def act(decision: str, severity: int, text: str, target: int) -> RuleResult:
+        details["decision"] = decision
+        return RuleResult(True, severity, details, [Action(text, "max_session_rpe", "<=", target, ctx.date)])
+
+    if len(reasons) >= p["flags_for_rest"]:
+        return act("rest", 2, f"Rest today or keep it very easy (RPE 3 or less) instead of {names}: "
+                              f"{'; '.join(reasons)}", 3)
+    if below:
+        return act("downgrade", 2, f"Make {names} easy today (RPE {easy} or less: intervals become an easy run, "
+                                   "sprints become technique): 7-day HRV is below its normal band", easy)
+    if weekend_game and sprints:
+        return act("downgrade", 1, f"Sprint technique only today (RPE {easy} or less): you played at the weekend", easy)
+    if flags:
+        later = [s for s in ctx.planned if ctx.date < s["date"] <= ctx.date + timedelta(days=3)
+                 and s["status"] != "skipped" and s["session_type"] == "easy"]
+        if later:
+            return act("swap", 1, f"Swap {names} with {later[0]['date']:%A}'s easy session (RPE {easy} or less "
+                                  f"today): {flags[0]}", easy)
+        return act("downgrade", 1, f"Keep {names} easy today (RPE {easy} or less): {flags[0]}", easy)
+    details["decision"] = "keep"
+    return RuleResult(False, details=details)
+
+
 # ------------------------------------------------------------------ experiments
 @rule("EXPERIMENT_PROTOCOL")
 def experiment_protocol(ctx: RuleContext, p: dict) -> RuleResult:
