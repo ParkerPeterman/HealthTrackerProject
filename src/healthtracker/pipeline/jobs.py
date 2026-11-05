@@ -36,6 +36,7 @@ from healthtracker.stats.bayes import run_effects
 from healthtracker.stats.experiments import update_experiments
 from healthtracker.stats.insights import run_insights
 from healthtracker.stats.promotion import run_promotion
+from healthtracker.stats.screen import run_screen
 from healthtracker.stats.sleep_drivers import run_sleep_drivers
 from healthtracker.stats.tuning import run_tuning
 from healthtracker.transform.garmin import load_all
@@ -199,6 +200,7 @@ def weekly(d: date | None = None) -> JobReport:
 
     run_step("weekly", "effects", step(run_effects), report)  # B1 (shadow), before the OLS cross-check
     run_step("weekly", "sleep_drivers", step(run_sleep_drivers), report)  # E3 (shadow)
+    run_step("weekly", "screen", step(run_screen), report)  # B6 (exploratory, shadow)
     run_step("weekly", "insights", step(run_insights), report)
     run_step("weekly", "medication_analysis", step(_med_analysis), report)  # H3, sensitive, shadow
     run_step("weekly", "parameter_tuning", step(run_tuning), report)
@@ -268,6 +270,8 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                 with connect() as conn:
                     run_effects(conn, d)
                     run_sleep_drivers(conn, d)
+                    if d + timedelta(days=7) > end:  # exploratory: only the latest week matters
+                        run_screen(conn, d)
                     run_insights(conn, d)
                     _med_analysis(conn, d)
                     run_tuning(conn, d)

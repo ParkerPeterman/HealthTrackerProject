@@ -99,6 +99,18 @@ else:
                "are per unit of exposure (drinks, mg, hours, load units); travel is per travel day.")
     st.dataframe(drv, hide_index=True, width="stretch")
 
+st.subheader("Exploratory screen (B6)")
+scr = c.query("""SELECT exposure, outcome, lag_days, n_days, estimate, lo80, hi80, p_meaningful, known, candidate
+                 FROM analytics.screen_result WHERE flagged
+                   AND computed_on = (SELECT max(computed_on) FROM analytics.screen_result)
+                 ORDER BY p_meaningful DESC LIMIT 25""")
+if scr.empty:
+    c.empty_state("Nothing stands out in the exploratory screen yet.")
+else:
+    st.caption("*Exploratory*: every exposure x outcome x lag (0-3 days) under strong shrinkage; these stood out "
+               "anyway. They can become self-experiments, never rules. 'candidate' means a block design can test it.")
+    st.dataframe(scr, hide_index=True, width="stretch")
+
 st.subheader("Self-experiments")
 exp = c.query("""SELECT e.id, h.exposure, h.outcome, e.design, e.start_date, e.end_date, e.status, e.result_summary
                  FROM analytics.experiment e LEFT JOIN analytics.hypothesis h ON h.id = e.hypothesis_id
