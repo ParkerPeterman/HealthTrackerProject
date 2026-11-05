@@ -88,6 +88,17 @@ else:
                "more days until it would reach 0.8 if the estimate holds. Doses are per unit.")
     st.dataframe(est, hide_index=True, width="stretch")
 
+st.subheader("Sleep drivers (E3, shadow)")
+drv = c.query("""SELECT outcome, exposure, n_days, estimate, lo80, hi80, p_direction, p_meaningful, prior_source
+                 FROM analytics.sleep_driver WHERE computed_on = (SELECT max(computed_on) FROM analytics.sleep_driver)
+                 ORDER BY outcome, p_meaningful DESC""")
+if drv.empty:
+    c.empty_state("No sleep drivers model yet (needs about 30 complete food-log days).")
+else:
+    st.caption("One model per sleep outcome with every exposure in it, so effects aren't double-counted. Estimates "
+               "are per unit of exposure (drinks, mg, hours, load units); travel is per travel day.")
+    st.dataframe(drv, hide_index=True, width="stretch")
+
 st.subheader("Self-experiments")
 exp = c.query("""SELECT e.id, h.exposure, h.outcome, e.design, e.start_date, e.end_date, e.status, e.result_summary
                  FROM analytics.experiment e LEFT JOIN analytics.hypothesis h ON h.id = e.hypothesis_id

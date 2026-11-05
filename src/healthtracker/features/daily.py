@@ -50,6 +50,8 @@ FEATURE_COLUMNS = [
     "sleep_quality",
     # B3 doses
     "bedtime_hour", "training_min", "caffeine_hours_before_bed",
+    # E3 sleep drivers
+    "train_end_hour", "water_late_ml",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -265,14 +267,18 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
         w["hard"] = w["is_game"] | (w["rpe_eff"] >= hard_thr)
         w["run_km"] = np.where(w["sport"] == "run", w["distance_m"].fillna(0) / 1000.0, 0.0)
         w["manual_game"] = w["is_game"] & (w["source"] == "manual")
+        local_start = pd.to_datetime(w["start_ts"], utc=True).dt.tz_convert(tz)
+        w["end_hour"] = (local_start.dt.hour + local_start.dt.minute / 60 + w["duration_s"] / 3600).round(2)
         per_day = w.groupby("date").agg(
             n_workouts=("id", "count"), session_load=("load", "sum"), had_game=("is_game", "any"),
             any_hard=("hard", "any"), run_km=("run_km", "sum"), manual_game=("manual_game", "any"),
             training_min=("duration_s", lambda x: x.sum() / 60.0),
+            train_end_hour=("end_hour", "max"),
         ).reset_index()
         join(per_day)
     else:
-        for c in ("n_workouts", "session_load", "had_game", "any_hard", "run_km", "manual_game", "training_min"):
+        for c in ("n_workouts", "session_load", "had_game", "any_hard", "run_km", "manual_game", "training_min",
+                  "train_end_hour"):
             df[c] = np.nan
     df["training_min"] = df["training_min"].fillna(0.0).astype(float).round(1)
     df["n_workouts"] = df["n_workouts"].fillna(0).astype(int)
@@ -357,6 +363,12 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
         df[c] = df[c].round(1)
     df["last_meal_hour"] = df["last_meal_hour"].round(1)
     df["last_caffeine_hour"] = df["last_caffeine_hour"].round(1)
+    # E3: water from 20:00 on; unknown (not zero) on days with no water logged at all.
+    water = fetch_df(conn, """SELECT (ts AT TIME ZONE %(tz)s)::date AS date,
+                                     sum(ml) FILTER (WHERE extract(hour FROM ts AT TIME ZONE %(tz)s) >= 20) AS late
+                              FROM core.water_entry GROUP BY 1""", {"tz": tz})
+    df["water_late_ml"] = (pd.Series(water["late"].fillna(0).astype(float).to_numpy(), index=pd.to_datetime(water["date"]))
+                           .reindex(df.index) if not water.empty else np.nan)
     # B3: this day's last caffeine to that night's bedtime (the night ending tomorrow).
     df["caffeine_hours_before_bed"] = (df["bedtime_hour"].astype(float).shift(-1)
                                        - df["last_caffeine_hour"].astype(float)).round(2)

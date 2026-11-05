@@ -105,43 +105,65 @@ def days_to(loc: float, scale: float, dof: float, swc: float, n: int, target: fl
     return hi - n
 
 
-def estimate(df: pd.DataFrame, h: Hypothesis, prior: tuple[float, float, str], swc_sd: float) -> Estimate:
-    out = Estimate(h.id, h.kind, len(df), prior_mean=prior[0], prior_sd=prior[1], prior_source=prior[2])
-    if len(df) < MIN_DAYS or df["E"].std() == 0:
-        return out
+def fit(X: np.ndarray, y: np.ndarray, consecutive: np.ndarray, m0: np.ndarray, v0: np.ndarray) -> dict | None:
+    """Prewhiten, then the conjugate update. Columns of X are standardized (plus a constant)."""
+    Xs, ys, rho = prewhiten(X, y, consecutive)
+    if len(ys) < MIN_DAYS:
+        return None
+    mn, vn, an, bn = nig_posterior(Xs, ys, m0, v0)
+    return {"mn": mn, "vn": vn, "dof": 2 * an, "an": an, "bn": bn, "rho": rho, "n": len(ys)}
+
+
+def summarize(post: dict, j: int, to_raw: float, swc_sd: float) -> dict:
+    """Coefficient j of a fit, in outcome units: median, intervals, P(direction), P(|b| > SWC), days to 0.8."""
+    dof, loc = post["dof"], float(post["mn"][j])
+    scale = float(np.sqrt(post["bn"] / post["an"] * post["vn"][j, j]))
+    q = {k: float(stats.t.ppf(p, dof, loc, scale)) for k, p in
+         (("lo95", 0.025), ("lo80", 0.10), ("hi80", 0.90), ("hi95", 0.975))}
+    out = {"estimate": round(loc * to_raw, 3), "estimate_sd": round(loc, 3),
+           **{k: round(v * to_raw, 3) for k, v in q.items()},
+           "p_direction": round(float(stats.t.sf(0, dof, loc, scale) if loc > 0 else stats.t.cdf(0, dof, loc, scale)), 3),
+           "swc": round(swc_sd * to_raw, 3), "p_meaningful": round(p_beyond(loc, scale, dof, swc_sd), 3),
+           "days_to_80": days_to(loc, scale, dof, swc_sd, post["n"])}
+    return out
+
+
+def design(df: pd.DataFrame, exposures: list[tuple[str, bool]]) -> tuple[np.ndarray, np.ndarray, np.ndarray, float,
+                                                                         list[float], list[str]]:
+    """Standardized outcome; exposures (doses standardized, 0/1 kept), controls, constant."""
     y_sd = float(df["Y"].std()) or 1.0
     y = ((df["Y"] - df["Y"].mean()) / y_sd).to_numpy(dtype=float)
-    e = df["E"].astype(float)
-    e_scale = float(e.std()) if h.kind == "dose" else 1.0
-    e = ((e - e.mean()) / e_scale) if h.kind == "dose" else e
+    cols, scales = [], []
+    for col, dose in exposures:
+        e = df[col].astype(float)
+        sc = float(e.std()) if dose else 1.0
+        cols.append(((e - e.mean()) / sc).to_numpy() if dose else e.to_numpy())
+        scales.append(sc or 1.0)
     ctl = [c for c in df.columns if c.startswith(("dow_", "ctl_"))]
     C = df[ctl].astype(float)
     C = C.loc[:, C.std() > 0]
     C = (C - C.mean()) / C.std()
-    X = np.column_stack([e.to_numpy(), C.to_numpy(), np.ones(len(df))])
+    X = np.column_stack([*cols, C.to_numpy(), np.ones(len(df))]) if cols else np.ones((len(df), 1))
     idx = pd.DatetimeIndex(df.index)
     consecutive = np.r_[False, (idx[1:] - idx[:-1]).days == 1]
-    Xs, ys, rho = prewhiten(X, y, consecutive)
-    if len(ys) < MIN_DAYS:
+    return X, y, consecutive, y_sd, scales, list(C.columns)
+
+
+def estimate(df: pd.DataFrame, h: Hypothesis, prior: tuple[float, float, str], swc_sd: float) -> Estimate:
+    out = Estimate(h.id, h.kind, len(df), prior_mean=prior[0], prior_sd=prior[1], prior_source=prior[2])
+    if len(df) < MIN_DAYS or df["E"].std() == 0:
         return out
+    X, y, consecutive, y_sd, scales, _ = design(df, [("E", h.kind == "dose")])
     m0 = np.zeros(X.shape[1])
     m0[0] = prior[0]
     v0 = np.full(X.shape[1], VAGUE)
     v0[0] = prior[1] ** 2
-    mn, vn, an, bn = nig_posterior(Xs, ys, m0, v0)
-    dof, loc, scale = 2 * an, float(mn[0]), float(np.sqrt(bn / an * vn[0, 0]))
-    to_raw = y_sd / e_scale  # standardized -> outcome units per exposed day (or per dose unit)
-    q = {k: float(stats.t.ppf(p, dof, loc, scale)) for k, p in
-         (("lo95", 0.025), ("lo80", 0.10), ("hi80", 0.90), ("hi95", 0.975))}
-    out.rho = round(rho, 3)
-    out.estimate = round(loc * to_raw, 3)
-    out.estimate_sd = round(loc, 3)
-    for k, v in q.items():
-        setattr(out, k, round(v * to_raw, 3))
-    out.p_direction = round(float(stats.t.sf(0, dof, loc, scale) if loc > 0 else stats.t.cdf(0, dof, loc, scale)), 3)
-    out.swc = round(swc_sd * to_raw, 3)
-    out.p_meaningful = round(p_beyond(loc, scale, dof, swc_sd), 3)
-    out.days_to_80 = days_to(loc, scale, dof, swc_sd, len(ys))
+    post = fit(X, y, consecutive, m0, v0)
+    if post is None:
+        return out
+    out.rho = round(post["rho"], 3)
+    for k, v in summarize(post, 0, y_sd / scales[0], swc_sd).items():
+        setattr(out, k, v)
     return out
 
 
