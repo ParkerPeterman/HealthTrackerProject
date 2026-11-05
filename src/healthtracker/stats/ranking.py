@@ -68,14 +68,34 @@ def effect_candidates(conn: psycopg.Connection, d: date) -> list[dict]:
         unit = UNITS.get(r["outcome"], "points")
         word = confidence_word(r["p_meaningful"])
         lead = f"each one more {exp}" if h.kind == "dose" else f"after {exp}"
+        text = (f"{word.capitalize()}: {lead}, {outc} is {abs(r['estimate']):.1f} {unit} "
+                f"{'higher' if r['estimate'] > 0 else 'lower'} (80% interval {r['lo80']:.1f} to "
+                f"{r['hi80']:.1f}; {r['n_days']} days).")
+        if h.kind == "lagged" and r.get("lag_profile"):
+            text = lagged_text(word, exp, outc, unit, r["lag_profile"], r["n_days"])
         out.append({"kind": "effect", "key": f"effect:{r['hypothesis_id']}", "exposure": parse_exposure(r["exposure"])[0],
                     "outcome": r["outcome"], "p": float(r["p_meaningful"]), "estimate": float(r["estimate"]),
                     "swc": float(r["swc"]) if r["swc"] is not None else None,
                     "novelty": novelty(r["estimate_sd"], r["prior_mean"], r["prior_sd"]),
-                    "text": f"{word.capitalize()}: {lead}, {outc} is {abs(r['estimate']):.1f} {unit} "
-                            f"{'higher' if r['estimate'] > 0 else 'lower'} (80% interval {r['lo80']:.1f} to "
-                            f"{r['hi80']:.1f}; {r['n_days']} days)."})
+                    "text": text})
     return out
+
+
+def lagged_text(word: str, exp: str, outc: str, unit: str, lp: dict, n_days: int) -> str:
+    """B4: the first-lag effect, then how it fades (only when the evidence picks a shape)."""
+    first = lp["lags"][0]
+    lead = f"after a day with {exp} about {lp['per_sd']:.3g} above usual" if lp.get("per_sd") else f"after {exp}"
+    way = "higher" if first["estimate"] > 0 else "lower"
+    text = (f"{word.capitalize()}: {lead}, {outc.split(' (')[0]} is {abs(first['estimate']):.1f} {unit} {way} the "
+            f"next morning (80% interval {first['lo80']:.1f} to {first['hi80']:.1f}")
+    rest = lp["lags"][1:]
+    if not lp.get("shape_clear"):
+        tail = "); how long it lasts isn't clear yet"
+    elif lp["tau"] > 0 and rest:
+        tail = "), fading to " + ", ".join(f"{abs(x['estimate']):.1f}" for x in rest) + " on the mornings after"
+    else:
+        tail = ") and gone the morning after"
+    return f"{text}{tail} ({n_days} days)."
 
 
 def acted_on(conn: psycopg.Connection) -> set[str]:

@@ -16,6 +16,14 @@ Outputs: posterior median, 80% and 95% intervals, P(direction), P(|b| > SWC) wit
 from rule_parameter (N3), days used, and the days until P(|b| > SWC) would reach 0.8 if the
 estimate holds (the posterior SD shrinks with the square root of the days). Fast, exact, and
 deterministic: no sampling.
+
+B4, lagged effects ('lagged' hypotheses): the exposure on the first lag and the three days
+before it enters as one exponentially decaying sum, sum_j exp(-j / tau) x_(t-j), so an effect
+spread over four days (a hard session lowering HRV for two mornings) costs one coefficient
+instead of four. tau comes from a small grid (0 = the first lag only, 0.5, 1, 2, 4 days) by
+model evidence on identical rows (the same AR(1) rho for every tau, so the evidences
+compare). The estimate is the effect at the first lag; the lag profile (the effect at each
+lag, the total, and every tau's evidence and weight) goes alongside.
 """
 
 from __future__ import annotations
@@ -63,14 +71,16 @@ class Estimate:
     model: str = "nig_ar1"
 
 
-def prewhiten(X: np.ndarray, y: np.ndarray, consecutive: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
-    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
-    e = y - X @ beta
+def prewhiten(X: np.ndarray, y: np.ndarray, consecutive: np.ndarray,
+              rho: float | None = None) -> tuple[np.ndarray, np.ndarray, float]:
     pairs = consecutive[1:]
-    rho = 0.0
-    if pairs.sum() >= 5:
-        a, b = e[1:][pairs], e[:-1][pairs]
-        rho = float(np.clip(np.dot(a, b) / max(np.dot(b, b), 1e-12), 0.0, 0.9))
+    if rho is None:
+        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+        e = y - X @ beta
+        rho = 0.0
+        if pairs.sum() >= 5:
+            a, b = e[1:][pairs], e[:-1][pairs]
+            rho = float(np.clip(np.dot(a, b) / max(np.dot(b, b), 1e-12), 0.0, 0.9))
     Xs = X[1:][pairs] - rho * X[:-1][pairs]
     ys = y[1:][pairs] - rho * y[:-1][pairs]
     return Xs, ys, rho
@@ -110,10 +120,10 @@ def days_to(loc: float, scale: float, dof: float, swc: float, n: int, target: fl
 
 
 def fit(X: np.ndarray, y: np.ndarray, consecutive: np.ndarray, m0: np.ndarray, v0: np.ndarray,
-        ar: bool = True) -> dict | None:
+        ar: bool = True, rho: float | None = None) -> dict | None:
     """Prewhiten (unless the rows aren't a daily series), then the conjugate update.
-    Columns of X are standardized (plus a constant)."""
-    Xs, ys, rho = prewhiten(X, y, consecutive) if ar else (X, y, 0.0)
+    Columns of X are standardized (plus a constant). A given `rho` is used as is."""
+    Xs, ys, rho = prewhiten(X, y, consecutive, rho) if ar else (X, y, 0.0)
     if len(ys) < MIN_DAYS:
         return None
     mn, vn, an, bn = nig_posterior(Xs, ys, m0, v0)
@@ -177,6 +187,80 @@ def estimate(df: pd.DataFrame, h: Hypothesis, prior: tuple[float, float, str], s
     return out
 
 
+# ------------------------------------------------------------------ B4: lagged effects
+TAUS = (0.0, 0.5, 1.0, 2.0, 4.0)   # 0: the first lag only
+LAG_SPAN = 3                        # the first lag and the three days before it
+SHAPE_CLEAR = 0.5                   # the best tau needs this much of the evidence weight to claim a shape
+
+
+def decay(tau: float) -> np.ndarray:
+    return np.array([1.0] + [math.exp(-j / tau) if tau > 0 else 0.0 for j in range(1, LAG_SPAN + 1)])
+
+
+def lagged_frame(f: pd.DataFrame, h: Hypothesis) -> tuple[pd.DataFrame, bool]:
+    """build_frame at the first lag, plus the exposure 1-3 days earlier (E1..E3), on the same rows
+    for every tau. Returns the frame and whether the exposure is a dose."""
+    from dataclasses import replace as dc_replace
+
+    from healthtracker.stats.hypothesis import exposure_series
+
+    col, op, _ = parse_exposure(h.exposure)
+    raw = f[col]
+    vals = set(pd.Series(raw).dropna().astype(float).unique()) if len(raw) else set()
+    dose = op is None and not (str(raw.dtype) in ("bool", "boolean") or vals <= {0.0, 1.0})
+    df, _ = build_frame(f, dc_replace(h, kind="dose" if dose else "binary"))
+    ff = f.sort_index()
+    ff = ff.reindex(pd.date_range(ff.index.min(), ff.index.max(), freq="D"))
+    x = ff[col].astype(float) if dose else exposure_series(ff, h.exposure)
+    for j in range(1, LAG_SPAN + 1):
+        df[f"E{j}"] = x.shift(j).reindex(df.index)
+    return df.dropna(), dose
+
+
+def estimate_lagged(df: pd.DataFrame, h: Hypothesis, prior: tuple[float, float, str], swc_sd: float,
+                    dose: bool) -> tuple[Estimate, dict | None]:
+    out = Estimate(h.id, h.kind, len(df), prior_mean=prior[0], prior_sd=prior[1], prior_source=prior[2],
+                   model="nig_ar1_decay")
+    if len(df) < MIN_DAYS or df["E"].std() == 0:
+        return out, None
+    lags = df[["E", *[f"E{j}" for j in range(1, LAG_SPAN + 1)]]].to_numpy(dtype=float)
+    mean, sd = (float(df["E"].mean()), float(df["E"].std()) or 1.0) if dose else (0.0, 1.0)
+    lags = (lags - mean) / sd  # doses per SD of the daily dose, the same scale for every tau
+    fits, rho = {}, None
+    for tau in TAUS:
+        d2 = df.drop(columns=[f"E{j}" for j in range(1, LAG_SPAN + 1)]).copy()
+        d2["E"] = lags @ decay(tau)
+        X, y, consecutive, y_sd, _, _ = design(d2, [("E", False)])
+        m0, v0 = np.zeros(X.shape[1]), np.full(X.shape[1], VAGUE)
+        m0[0], v0[0] = prior[0], prior[1] ** 2
+        if rho is None:  # from the first-lag model, then fixed so the evidences compare
+            _, _, rho = prewhiten(X, y, consecutive)
+        post = fit(X, y, consecutive, m0, v0, rho=rho)
+        if post is not None:
+            fits[tau] = post
+    if not fits:
+        return out, None
+    ev = np.array([fits[t]["log_ev"] for t in fits])
+    weights = np.exp(ev - ev.max()) / np.exp(ev - ev.max()).sum()
+    best = max(fits, key=lambda t: fits[t]["log_ev"])
+    post = fits[best]
+    to_raw = float(df["Y"].std() or 1.0) / sd
+    out.rho = round(post["rho"], 3)
+    for k, v in summarize(post, 0, to_raw, swc_sd).items():
+        setattr(out, k, v)
+    w = decay(best)
+    per = summarize(post, 0, to_raw * sd, swc_sd)  # per SD of a dose (per occurrence for yes/no), unrounded scale
+    profile = {"tau": best, "first_lag": h.lag_days, "per_sd": round(sd, 3) if dose else None,
+               "shape_clear": bool(weights.max() >= SHAPE_CLEAR),
+               "log_ev": {str(t): round(fits[t]["log_ev"], 3) for t in fits},
+               "weights": {str(t): round(float(x), 3) for t, x in zip(fits, weights, strict=True)},
+               "lags": [{"lag": h.lag_days + j, "weight": round(float(w[j]), 3),
+                         **{k: round(per[k] * float(w[j]), 3) for k in ("estimate", "lo80", "hi80", "lo95", "hi95")}}
+                        for j in range(LAG_SPAN + 1) if w[j] >= 0.05],
+               "total": {k: round(per[k] * float(w.sum()), 3) for k in ("estimate", "lo80", "hi80")}}
+    return out, profile
+
+
 # ------------------------------------------------------------------ the weekly job
 def priors(conn: psycopg.Connection) -> dict[tuple[str, str, int], tuple[float, float, str]]:
     return {(r["exposure"], r["outcome"], r["lag_days"]): (float(r["mean_sd"]), float(r["sd_sd"]), r["source"])
@@ -199,15 +283,20 @@ def run_effects(conn: psycopg.Connection, as_of: date, features: pd.DataFrame | 
     for r in fetch_all(conn, "SELECT * FROM analytics.hypothesis WHERE status <> 'retired' ORDER BY id"):
         h = Hypothesis(r["id"], r["exposure"], r["outcome"], r["lag_days"], r["min_n_per_group"],
                        tuple(r.get("excludes") or DEFAULT_EXCLUDES), r.get("kind") or "binary")
+        prior = pri.get((h.exposure, h.outcome, h.lag_days), DEFAULT_PRIOR)
+        swc_sd = swc.get(h.outcome, swc.get("default", 0.2))
+        profile = None
         try:
-            df, _ = build_frame(f, h)
+            if h.kind == "lagged":
+                df, dose = lagged_frame(f, h)
+                est, profile = estimate_lagged(df, h, prior, swc_sd, dose)
+            else:
+                df, _ = build_frame(f, h)
+                est = estimate(df, h, prior, swc_sd)
         except KeyError:
             continue  # a feature the hypothesis needs isn't built yet
-        prior = pri.get((h.exposure, h.outcome, h.lag_days), DEFAULT_PRIOR)
-        est = estimate(df, h, prior, swc.get(h.outcome, swc.get("default", 0.2)))
         rows.append({"computed_on": as_of, **asdict(est), "family": family_of(parse_exposure(h.exposure)[0], h.outcome),
-                     "pooled_sd": None, "pooled_p_meaningful": None,
-                     "_swc_sd": swc.get(h.outcome, swc.get("default", 0.2))})
+                     "pooled_sd": None, "pooled_p_meaningful": None, "lag_profile": profile, "_swc_sd": swc_sd})
     pool_families(rows)
     for r in rows:
         r.pop("_swc_sd")

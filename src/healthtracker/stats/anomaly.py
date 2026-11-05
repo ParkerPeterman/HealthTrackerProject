@@ -76,6 +76,8 @@ def credible_effects(effects: list[dict], outcome: str, min_p: float) -> dict[st
     for e in effects:
         if e["outcome"] != outcome or e["estimate"] is None or (e["p_meaningful"] or 0) < min_p:
             continue
+        if e["kind"] == "lagged":
+            continue  # B4 spreads an exposure over four days; the single-lag estimates cover the day before
         col, op, val = parse_exposure(e["exposure"])
         out.setdefault(col, []).append({**e, "_op": op, "_val": val})
     for items in out.values():
