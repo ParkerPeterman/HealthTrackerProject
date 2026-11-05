@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11434"
     llm_model: str = "qwen3:14b"
     llm_timeout_s: float = 180.0
-    prompt_version: str = "v1"
+    prompt_version: str = "v2"  # v2: no medication, painkillers, or extra water (H4)
 
     # Data quality
     partial_day_wear_min: int = 1200     # under 20h of all-day HR = partial day

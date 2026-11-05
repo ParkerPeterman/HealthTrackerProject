@@ -9,6 +9,8 @@ import Train from "./pages/Train";
 import WorkoutDetail from "./pages/WorkoutDetail";
 import Coach from "./pages/Coach";
 import Goals from "./pages/Goals";
+import { useMedicationToday } from "./pages/Medication";
+import { isoDate } from "./dates";
 
 const TABS = [
   { to: "/", label: "Today", icon: "today" },
@@ -19,6 +21,9 @@ const TABS = [
 ];
 
 export default function App() {
+  // H1: a quiet in-app badge on Today once a daily check is past due (never names it).
+  const { data: med } = useMedicationToday(isoDate());
+  const due = !!med?.medications.some((m) => m.badge);
   return (
     <>
       <main className="app">
@@ -39,7 +44,13 @@ export default function App() {
         <nav aria-label="Main">
           {TABS.map((t) => (
             <NavLink key={t.to} to={t.to} end={t.to === "/"} className={({ isActive }) => (isActive ? "active" : "")}>
-              <Icon name={t.icon} />
+              <span style={{ position: "relative", display: "inline-flex" }}>
+                <Icon name={t.icon} />
+                {t.to === "/" && due && (
+                  <span className="dot" aria-label="Check-in due"
+                        style={{ position: "absolute", top: -2, right: -4, ["--hue" as string]: "var(--warn)" }} />
+                )}
+              </span>
               {t.label}
             </NavLink>
           ))}

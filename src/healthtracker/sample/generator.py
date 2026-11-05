@@ -342,6 +342,7 @@ class Generator:
         self._future_games()
         self._injury_followup()
         self._perf_tests()
+        self._medication(plans)
         return counts
 
     # ------------------------------------------------------------ pieces
@@ -404,6 +405,32 @@ class Generator:
             insert(self.conn, "core.performance_test", {
                 "date": d + timedelta(days=1), "test": "time_trial_5k", "unit": "s",
                 "value": round(1290 - 25 * k + float(rng.normal(0, 8))), "conditions": "track"}, returning=None)
+
+    def _medication(self, plans: list[DayPlan]) -> None:
+        """H5: a made-up medication with a planted adherence pattern, for testing.
+
+        About 95% of days taken around 08:00 (later on weekends); misses cluster on travel days;
+        one two-day run of misses; a few days unanswered or "don't remember". No effect on any
+        physiology is planted, so the H3 analysis should find nothing. Own random stream, so
+        nothing planted elsewhere moves.
+        """
+        rng = np.random.default_rng(self.seed + 202)
+        mid = insert(self.conn, "core.medication", {"name": "Demozine", "dose_mg": 10,
+                                                    "start_date": self.start - timedelta(days=200)})
+        streak = {self.days * 80 // 100, self.days * 80 // 100 + 1}
+        for i, p in enumerate(plans):
+            if i in streak:
+                status = "missed"
+            else:
+                u = rng.random()
+                miss = 0.30 if p.travel else 0.02
+                status = "unknown" if u < 0.02 else "missed" if u < 0.02 + miss else "taken"
+            if status == "unknown" and rng.random() < 0.6:
+                continue  # never answered
+            hour = (9.5 if p.d.weekday() >= 5 else 8.0) + float(rng.normal(0, 0.4))
+            insert(self.conn, "core.medication_log", {
+                "medication_id": mid, "date": p.d, "status": status,
+                "taken_at": local(p.d, hour) if status == "taken" else None}, returning=None)
 
     def _future_games(self) -> None:
         for k in range(1, 22):

@@ -64,3 +64,12 @@ def test_template_render_is_markdown_with_sections():
     text = render(template_sections(payloads), payloads)
     assert text.startswith("**Training & recovery**\n\nRecovery: HRV 48 ms (-1.4 SD vs baseline)")
     assert "- Eat at least 140 g of protein today" in text and "Yesterday: 2400 kcal, 120 g protein." in text
+
+
+def test_no_medication_painkillers_or_extra_water():
+    for bad in ("Take ibuprofen for the soreness if you need it.", "Drink plenty of water and get at least 140 g of protein.",
+                "Get at least 140 g of protein, and remember your medication.", "An NSAID can help; eat 140 g of protein."):
+        out = good()
+        out["items"][1]["message"] = bad
+        res = check_output(out, PAYLOAD, ACTIONS)
+        assert not res.passed and "only code-made templates" in res.problems[-1], bad

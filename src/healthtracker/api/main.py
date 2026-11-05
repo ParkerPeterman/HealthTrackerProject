@@ -9,7 +9,17 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from healthtracker.api.routes import body, coach, food, goals, perftests, settings, training, water
+from healthtracker.api.routes import (
+    body,
+    coach,
+    food,
+    goals,
+    medication,
+    perftests,
+    settings,
+    training,
+    water,
+)
 from healthtracker.config import get_settings
 from healthtracker.db import current_url
 
@@ -17,7 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 app = FastAPI(title="Health & Training Tracker", version="0.1.0")
 for r in (settings.router, goals.router, food.router, water.router, training.router, perftests.router,
-          body.router, coach.router):
+          body.router, coach.router, medication.router):
     app.include_router(r)
 
 

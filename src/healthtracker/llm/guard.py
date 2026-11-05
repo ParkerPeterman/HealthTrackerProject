@@ -2,7 +2,11 @@
 
 The model must (1) cover exactly the actions the rules made, once each,
 (2) use no number that isn't in its input, (3) keep each action's target
-numbers, and (4) keep the summary descriptive, with no advice of its own.
+numbers, (4) keep the summary descriptive, with no advice of its own, and
+(5) say nothing about medication, painkillers, or drinking extra water. Medication
+lines come only from approved templates (medication/messages.py); painkillers can
+interact with some prescriptions, so injuries point to a physio or doctor instead;
+and pushing fluids past the day's goal is the main cause of low sodium in exercise.
 Any failure means the plain template is used instead.
 """
 
@@ -16,6 +20,11 @@ NUMBER = re.compile(r"\d+(?:\.\d+)?")
 ADVICE = re.compile(
     r"\b(should|try|avoid|eat|drink|take|skip|make sure|go to bed|consider|aim|limit|add|"
     r"supplement|stretch|hydrate|rest up|cut back|increase|reduce)\b", re.IGNORECASE)
+BANNED = re.compile(
+    r"\b(medication|medicine|prescri\w*|doses?|dosing|pills?|ibuprofen|naproxen|aspirin|nsaids?|painkillers?|"
+    r"pain relievers?|advil|motrin|aleve|acetaminophen|tylenol|paracetamol|"
+    r"drink (?:more|plenty|extra|lots)|plenty of (?:water|fluids)|extra (?:water|fluids)|hydrate more)\b",
+    re.IGNORECASE)
 MAX_SUMMARY = 600
 MAX_MESSAGE = 450
 
@@ -100,6 +109,9 @@ def check_output(output: dict, payload: dict, actions: list[dict]) -> CheckResul
         if not msg.strip():
             problems.append(f"action {i['action_id']} message empty")
 
+    for t in texts:
+        if m := BANNED.search(t):
+            problems.append(f"mentions '{m.group(0)}', which only code-made templates may cover")
     if ADVICE.search(summary):
         problems.append(f"summary gives advice ('{ADVICE.search(summary).group(0)}')")
     if len(summary) > MAX_SUMMARY:

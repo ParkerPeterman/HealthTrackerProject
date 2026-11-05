@@ -1133,6 +1133,12 @@ routes.push(
   }],
 );
 
+// Demo mode has no medication: it is sensitive, and demo screenshots never show it (H5).
+routes.push(
+  ["GET", /^\/medication\/today$/, () => ({ date: TODAY, medications: [] })],
+  ["GET", /^\/medications$/, () => []],
+);
+
 routes.push(["GET", /^\/intensity$/, () => [
   { week_start: day(-7 - new Date().getDay()), low_min: 210, mid_min: 70, high_min: 25, easy_pct: 68.9, pattern: "moderate_heavy", n_sessions: 6 },
   { week_start: day(-((new Date().getDay() + 6) % 7)), low_min: 150, mid_min: 30, high_min: 18, easy_pct: 75.8, pattern: "pyramidal", n_sessions: 4 },

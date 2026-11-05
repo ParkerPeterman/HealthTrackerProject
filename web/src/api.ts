@@ -594,3 +594,29 @@ export interface ShoulderState {
   pain_today: number | null;
   checkin_needed: boolean;
 }
+
+// ------------------------------------------------------------------ medication (H1, H4; sensitive)
+export type MedStatus = "taken" | "missed" | "unknown";
+export interface MedicationCard {
+  id: number;
+  name: string;
+  dose_mg: number | null;
+  today: { status: MedStatus; taken_at: string | null } | null;
+  yesterday: { status: MedStatus } | null;
+  ask_yesterday: boolean;
+  usual_hour: number | null;
+  badge: boolean;              // past the usual time plus the reminder delay, not taken yet
+  week: string;                // approved template 1, filled by code
+  messages: { template: string; text: string }[];
+}
+export interface MedicationToday { date: string; medications: MedicationCard[] }
+export interface Medication {
+  id: number;
+  name: string;
+  dose_mg: number | null;
+  start_date: string;
+  active: boolean;
+  usual_time: string | null;
+  reminder_delay_min: number;
+  changes: { id: number; date: string; old_dose_mg: number | null; new_dose_mg: number | null; note: string | null }[];
+}

@@ -15,6 +15,7 @@ import pandas as pd
 import psycopg
 
 from healthtracker.db import execute, fetch_all, fetch_one, insert
+from healthtracker.medication import is_sensitive
 from healthtracker.stats.hypothesis import parse_exposure
 from healthtracker.stats.insights import load_features_frame
 from healthtracker.units import fmt_hour
@@ -34,6 +35,8 @@ PRESETS = {
 
 def protocol_for(exposure: str, outcome: str, lag: int) -> dict:
     col, op, val = parse_exposure(exposure)
+    if is_sensitive(col):
+        raise ValueError("medication is never an experiment")
     if col not in PRESETS or op not in (">=", ">"):
         raise ValueError(f"no experiment preset for exposure {exposure!r}")
     return {**PRESETS[col](val), "outcome": outcome, "outcome_lag": lag}
@@ -57,6 +60,8 @@ def create_experiment(conn: psycopg.Connection, hypothesis_id: int, start: date,
     h = fetch_one(conn, "SELECT * FROM analytics.hypothesis WHERE id = %s", (hypothesis_id,))
     if not h:
         raise ValueError("unknown hypothesis")
+    if is_sensitive(parse_exposure(h["exposure"])[0]) or (protocol and is_sensitive(protocol.get("metric", ""))):
+        raise ValueError("medication is never an experiment")
     protocol = protocol or protocol_for(h["exposure"], h["outcome"], h["lag_days"])
     assignment = assign_days(start, days, seed)
     end = start + timedelta(days=len(assignment) - 1)

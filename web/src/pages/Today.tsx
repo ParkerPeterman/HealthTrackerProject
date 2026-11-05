@@ -13,6 +13,7 @@ import { fromKg, showWeight, toKg, weightUnit } from "../units";
 import { GameSheet, PlanReasonView } from "./Train";
 import { CheckinSheet } from "./Body";
 import { LibraryDetail } from "./Library";
+import { MedicationCards, MedicationLines } from "./Medication";
 import { STATUS } from "../goals";
 import { WaterCard } from "../components/Water";
 
@@ -120,6 +121,7 @@ export default function Today() {
         {rec?.rendered_text ? <CoachText text={rec.rendered_text} /> : (
           <p style={{ margin: 0 }}>No coaching yet today. It's built each morning after your watch syncs. Tap refresh after syncing.</p>
         )}
+        <MedicationLines date={data.date} />
         {rec && (
           <div className="spread" style={{ marginTop: 4, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
             <span className="tiny muted">Code decides; the LLM only phrases.<br />How useful was this?</span>
@@ -159,6 +161,7 @@ export default function Today() {
       })}
 
       <h3 className="section-title">Check-in</h3>
+      <MedicationCards date={data.date} />
       <JournalCard date={data.date} journal={data.journal} />
       <TagsCard date={data.date} />
       <ShoulderCard date={data.date} />

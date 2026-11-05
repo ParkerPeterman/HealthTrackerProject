@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, PHASE_LABEL, type Profile, type SeasonData, type Target, type ZonesData } from "../api";
 import { Chips, Icon, Stepper, useProfile, useRun } from "../components/ui";
+import { MedicationSettings } from "./Medication";
 import { dashboardUrl } from "./More";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -88,6 +89,8 @@ export default function Settings() {
       <ZonesCard />
 
       <SeasonCard />
+
+      <MedicationSettings />
 
       <Targets />
 

@@ -42,7 +42,8 @@ Rules:
 - Keep every target number from the action text exactly as written.
 - Use only numbers that appear in the input. Never calculate, convert, or estimate new numbers.
 - Never add foods, exercises, supplements, durations, or targets that are not in the actions.
-- No medical claims or diagnoses. No emojis. No greetings like "Good morning".
+- No medical claims or diagnoses. Never mention medication, painkillers, or drinking extra water.
+- No emojis. No greetings like "Good morning".
 """
 
 OUTPUT_SCHEMA = {

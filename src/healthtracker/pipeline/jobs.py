@@ -81,6 +81,21 @@ def _load_step(d: date) -> int:
         return build_load(conn, d) + build_intensity_weekly(conn)
 
 
+def _medication_step(d: date) -> int:
+    from healthtracker.medication.features import build_medication_daily
+
+    with connect() as conn:
+        return build_medication_daily(conn, d)
+
+
+def _medication_messages(d: date) -> int:
+    """After the recommendation and apart from it: the LLM never sees medication data."""
+    from healthtracker.medication.messages import build_messages
+
+    with connect() as conn:
+        return build_messages(conn, d)
+
+
 def _rules_and_recommendation(d: date) -> tuple[int, int]:
     with connect() as conn:
         ctx, results = run_rules(conn, d)
@@ -108,6 +123,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
     run_step("nightly", "load", lambda: _load_step(d), report)
     run_step("nightly", "daily_features", lambda: _features_step(d), report)
     run_step("nightly", "baselines", lambda: _baselines_step(d), report)
+    run_step("nightly", "medication_features", lambda: _medication_step(d), report)
 
     def grade() -> int:
         from healthtracker.planning.weekly import link_planned
@@ -125,6 +141,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
 
     run_step("nightly", "rules", rules, report)
     run_step("nightly", "recommendation", lambda: state.get("rec", 0), report)
+    run_step("nightly", "medication_messages", lambda: _medication_messages(d), report)
 
     def llm() -> int:
         with connect() as conn:
@@ -187,6 +204,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
 
     run_step("backfill", "daily_features", features, report)
     run_step("backfill", "baselines", lambda: _baselines_step(end, start - timedelta(days=60)), report)
+    run_step("backfill", "medication_features", lambda: _medication_step(end), report)
 
     def days() -> int:
         from healthtracker.planning.weekly import grade_week_plan, write_week_plan
@@ -197,7 +215,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
             with connect() as conn:
                 total += grade_actions(conn, d, resolver=MetricResolver(conn))
             _, n = _rules_and_recommendation(d)
-            total += n
+            total += n + _medication_messages(d)
             with connect() as conn:
                 phrase(conn, d, use_llm=d >= llm_from)
             if weekly_every and d.weekday() == 6 and (d - start).days >= 27:
