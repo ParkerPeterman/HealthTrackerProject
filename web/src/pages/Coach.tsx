@@ -209,6 +209,7 @@ function Findings() {
       {supported.length === 0 && <Empty>Nothing has passed every check yet. That takes weeks of data, by design.</Empty>}
       {supported.map((h) => <Finding key={h.id} h={h} />)}
       <h3 className="section-title">Promising, not proven ({weak.length})</h3>
+      <WeekInsights />
       {!runningExp && <SuggestedExperiment />}
       <p className="tiny muted" style={{ margin: 0 }}>Randomized self-experiments are the strongest test. Start one for a hypothesis below.</p>
       {weak.map((h) => (
@@ -328,6 +329,36 @@ function SuggestedExperiment() {
         qc.invalidateQueries({ queryKey: ["experiments"] });
         qc.invalidateQueries({ queryKey: ["experiment-next"] });
       }, "Experiment starts next Monday")}>Start it</button>
+    </div>
+  );
+}
+
+/** C3: at most three insights a week, ranked; Section 13's "new to me" / "knew it" rating. */
+function WeekInsights() {
+  const qc = useQueryClient();
+  const run = useRun();
+  const { data } = useQuery({
+    queryKey: ["insights-week"],
+    queryFn: () => api.get<{ live: boolean; insights: { week_start: string; key: string; kind: string; text: string; rating: "new" | "knew" | null }[] }>("/insights/week"),
+  });
+  if (!data?.live || !data.insights.length) return null;
+  return (
+    <div className="card stack" style={{ gap: 10 }}>
+      <h3>This week</h3>
+      {data.insights.map((i) => (
+        <div key={i.key} className="stack" style={{ gap: 6 }}>
+          <div className="small">{i.text}</div>
+          <div className="chips" role="radiogroup" aria-label="Was this new to you?">
+            {(["new", "knew"] as const).map((r) => (
+              <button key={r} type="button" role="radio" aria-checked={i.rating === r} className={`chip${i.rating === r ? " on" : ""}`}
+                      onClick={() => run(async () => {
+                        await api.put(`/insights/week/${i.week_start}/${encodeURIComponent(i.key)}/rating`, { rating: r });
+                        qc.invalidateQueries({ queryKey: ["insights-week"] });
+                      })}>{r === "new" ? "New to me" : "Knew it"}</button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -1150,6 +1150,7 @@ routes.push(["GET", /^\/fitness$/, () => {
   };
 }]);
 
+routes.push(["GET", /^\/insights\/week$/, () => ({ live: false, insights: [] })]);
 routes.push(["POST", /^\/experiments\/design$/, () => {
   const assignment: Record<string, string> = {};
   const toMonday = (8 - new Date().getDay()) % 7 || 7;

@@ -259,6 +259,32 @@ def start_experiment(body: ExperimentIn, conn: psycopg.Connection = Depends(get_
     return {"id": eid}
 
 
+@router.get("/insights/week")
+def week_insights(conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """C3: this week's ranked insights (at most three), once the ranking is live."""
+    from healthtracker.components import component_status, is_live
+
+    live = is_live(component_status(conn), "COMP_INSIGHT_RANKING")
+    rows = fetch_all(conn, """SELECT week_start, key, kind, text, rating FROM analytics.weekly_insight WHERE shown
+                              AND week_start = (SELECT max(week_start) FROM analytics.weekly_insight)
+                              ORDER BY score DESC""") if live else []
+    return to_jsonable({"live": live, "insights": rows})
+
+
+class InsightRatingIn(BaseModel):
+    rating: Literal["new", "knew"]
+
+
+@router.put("/insights/week/{week_start}/{key}/rating")
+def rate_insight(week_start: date, key: str, body: InsightRatingIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Section 13: "new to me" or "knew it"; the target is at least half new."""
+    n = execute(conn, "UPDATE analytics.weekly_insight SET rating = %s WHERE week_start = %s AND key = %s",
+                (body.rating, week_start, key))
+    if not n:
+        raise not_found()
+    return {"ok": True}
+
+
 @router.get("/experiments/next")
 def suggested_experiment(conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """B7: the block design expected to teach the most now (None if one is already running)."""

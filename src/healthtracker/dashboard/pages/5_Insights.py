@@ -99,6 +99,18 @@ else:
                "are per unit of exposure (drinks, mg, hours, load units); travel is per travel day.")
     st.dataframe(drv, hide_index=True, width="stretch")
 
+st.subheader("This week's ranking (C1-C4, shadow)")
+wk = c.query("""SELECT kind, text, p, novelty, actionability, priority, recency, moved, score, shown, rating
+                FROM analytics.weekly_insight WHERE week_start = (SELECT max(week_start) FROM analytics.weekly_insight)
+                ORDER BY shown DESC, score DESC LIMIT 15""")
+if wk.empty:
+    c.empty_state("No ranked insights yet (the weekly job ranks them).")
+else:
+    st.caption("score = P(meaningful) x novelty x actionability x priority + recency. At most three are shown; one "
+               "shown before returns only when it moved by its smallest worthwhile change or its confidence word "
+               "changed. Ratings: target at least half 'new to me'.")
+    st.dataframe(wk, hide_index=True, width="stretch", column_config={"text": st.column_config.TextColumn(width="large")})
+
 st.subheader("Exploratory screen (B6)")
 scr = c.query("""SELECT exposure, outcome, lag_days, n_days, estimate, lo80, hi80, p_meaningful, known, candidate
                  FROM analytics.screen_result WHERE flagged

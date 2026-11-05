@@ -20,6 +20,7 @@ deterministic: no sampling.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from datetime import date
 
@@ -111,7 +112,11 @@ def fit(X: np.ndarray, y: np.ndarray, consecutive: np.ndarray, m0: np.ndarray, v
     if len(ys) < MIN_DAYS:
         return None
     mn, vn, an, bn = nig_posterior(Xs, ys, m0, v0)
-    return {"mn": mn, "vn": vn, "dof": 2 * an, "an": an, "bn": bn, "rho": rho, "n": len(ys)}
+    # Log marginal likelihood (model evidence), for comparing models of the same rows.
+    _, logdet_n = np.linalg.slogdet(vn)
+    log_ev = (-len(ys) / 2 * np.log(2 * np.pi) + 0.5 * (logdet_n - np.sum(np.log(v0)))
+              + A0 * np.log(B0) - an * np.log(bn) + math.lgamma(an) - math.lgamma(A0))
+    return {"mn": mn, "vn": vn, "dof": 2 * an, "an": an, "bn": bn, "rho": rho, "n": len(ys), "log_ev": float(log_ev)}
 
 
 def summarize(post: dict, j: int, to_raw: float, swc_sd: float) -> dict:

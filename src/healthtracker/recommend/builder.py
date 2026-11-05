@@ -160,7 +160,18 @@ def upcoming(ctx: RuleContext) -> list[dict]:
 
 
 def supported_insights(conn: psycopg.Connection) -> list[dict]:
-    """C5: supported insights as their structured records (the guard checks phrasing against them)."""
+    """C5: supported insights as their structured records (the guard checks phrasing against them).
+    Once COMP_INSIGHT_RANKING is live, the week's ranked insights (at most three) replace them."""
+    from healthtracker.components import component_status
+
+    if is_live(component_status(conn), "COMP_INSIGHT_RANKING"):
+        ranked = fetch_all(conn, """SELECT text, p, estimate FROM analytics.weekly_insight WHERE shown
+                                    AND week_start = (SELECT max(week_start) FROM analytics.weekly_insight)
+                                    ORDER BY score DESC""")
+        from healthtracker.stats.records import confidence_word
+
+        return [{"finding": r["text"], "confidence": confidence_word(float(r["p"])), "effect": r["estimate"]}
+                for r in ranked]
     rows = fetch_all(
         conn,
         """SELECT DISTINCT ON (i.hypothesis_id) i.status, i.shown, i.record
