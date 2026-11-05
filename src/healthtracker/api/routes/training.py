@@ -362,3 +362,26 @@ def library_session(code: str, day: date | None = None, conn: psycopg.Connection
     if not hit:
         raise not_found("unknown library session")
     return to_jsonable({"state": state, "session": hit})
+
+
+# ------------------------------------------------------------------ aerobic fitness (D3)
+@router.get("/fitness")
+def fitness(day: date | None = None, days: int = 120, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Pace at the reference HR at reference conditions (trend and 80% interval), VO2 max, and decoupling."""
+    from healthtracker.features.fitness import decoupling_summary, fitness_params
+
+    d = day or local_date(conn)
+    p = fitness_params(conn)
+    out: dict = {"min_runs": int(p["min_runs"]), "decoupling": decoupling_summary(conn, d, p)}
+    for metric in ("aerobic_pace", "vo2max"):
+        series = fetch_all(conn, """SELECT date, observed, adjusted, level, level_lo80, level_hi80, n_obs
+                                    FROM analytics.fitness_trend WHERE metric = %s AND date BETWEEN %s AND %s
+                                    ORDER BY date""", (metric, d - timedelta(days=days), d))
+        latest = fetch_one(conn, """SELECT * FROM analytics.fitness_trend WHERE metric = %s AND date <= %s
+                                    ORDER BY date DESC LIMIT 1""", (metric, d))
+        model = fetch_one(conn, """SELECT covariates FROM analytics.fitness_model WHERE metric = %s AND computed_on <= %s
+                                   ORDER BY computed_on DESC LIMIT 1""", (metric, d))
+        out[metric] = {"latest": latest, "learning": not latest or latest["n_obs"] < p["min_runs"],
+                       "adjusted_for": ((model or {}).get("covariates") or {}).get("used", []),
+                       "series": [r for r in series if r["observed"] is not None or r["date"] == d or r["date"].day == 1]}
+    return to_jsonable(out)

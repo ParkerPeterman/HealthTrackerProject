@@ -45,26 +45,31 @@ with left:
     c.show(c.base_layout(fig, "Acute:chronic ratio (descriptive only; decisions use weekly change)", "ratio",
                          legend=False), key="ratio")
 with right:
-    pace = f["pace_at_ref_hr_s_km"]
-    if d.imperial:
-        pace = pace.map(lambda v: None if pd.isna(v) else pace_s_per_km_to_s_per_mi(v))
-    pace_min = pace / 60
-    labels = [None if pd.isna(v) else f"{int(v // 60)}:{int(round(v % 60)):02d}" for v in pace]
-    fig = go.Figure()
-    color = c.palette()["series"][0]
-    fig.add_trace(go.Scatter(x=f["date"], y=pace, mode="lines", customdata=labels, name="pace",
-                             line={"color": color, "width": 2},
-                             hovertemplate=f"pace: %{{customdata}}{d.pace_unit}<extra></extra>"))
-    fig = c.base_layout(fig, "Pace at reference HR (lower is fitter)", f"min{d.pace_unit}", legend=False)
-    if pace.notna().any():
-        lo, hi = int(pace.min() // 15 * 15), int(pace.max() // 15 * 15 + 15)
-        ticks = list(range(lo, hi + 1, 15))
-        fig.update_yaxes(autorange="reversed", tickvals=ticks, ticktext=[f"{t // 60}:{t % 60:02d}" for t in ticks])
-    ref = c.profile().get("ref_hr_bpm")
-    c.show(fig, pd.DataFrame({"date": f["date"], f"pace min{d.pace_unit}": pace_min.round(2),
-                              "vo2max": f["vo2max"]}), key="pace")
-    st.caption(f"Reference HR: {int(ref) if ref and not pd.isna(ref) else 'auto (75% of max)'} bpm · "
-               f"VO2 max (Garmin): {f['vo2max'].dropna().iloc[-1] if f['vo2max'].notna().any() else '–'}")
+    # D3: underlying aerobic fitness (Kalman-smoothed), its 80% band, and each run at reference conditions.
+    ft = c.query("""SELECT date, adjusted, level, level_lo80, level_hi80, n_obs FROM analytics.fitness_trend
+                    WHERE metric = 'aerobic_pace' AND date BETWEEN %s AND %s ORDER BY date""", (start, end))
+    if ft.empty:
+        c.empty_state("No aerobic fitness trend yet (needs steady runs with a pace at the reference HR).")
+    else:
+        conv = (lambda v: None if pd.isna(v) else pace_s_per_km_to_s_per_mi(v)) if d.imperial else (lambda v: v)
+        for col in ("adjusted", "level", "level_lo80", "level_hi80"):
+            ft[col] = ft[col].map(conv)
+        pal = c.palette()
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=pd.concat([ft["date"], ft["date"][::-1]]),
+                                 y=pd.concat([ft["level_hi80"], ft["level_lo80"][::-1]]), fill="toself",
+                                 fillcolor=pal["band"], line={"width": 0}, hoverinfo="skip", name="80% range"))
+        c.line(fig, ft["date"], ft["level"], "fitness trend", slot=0, fmt=".0f")
+        c.dots(fig, ft["date"], ft["adjusted"], "run, adjusted", slot=1, fmt=".0f", size=6)
+        fig = c.base_layout(fig, "Pace at reference HR, at reference conditions (lower is fitter)",
+                            f"s{d.pace_unit}", legend=False)
+        fig.update_yaxes(autorange="reversed")
+        c.show(fig, ft, key="pace")
+        learning = int(ft["n_obs"].iloc[-1]) < 10
+        ref = c.profile().get("ref_hr_bpm")
+        st.caption(f"Reference HR: {int(ref) if ref and not pd.isna(ref) else 'auto (75% of max)'} bpm · "
+                   f"{'still learning (under 10 steady runs) · ' if learning else ''}"
+                   f"VO2 max (Garmin): {f['vo2max'].dropna().iloc[-1] if f['vo2max'].notna().any() else '–'}")
 
 st.subheader("Intensity distribution")
 iw = c.query("""SELECT week_start, low_min, mid_min, high_min, easy_pct, pattern, hr_share, n_sessions

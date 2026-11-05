@@ -625,3 +625,26 @@ export interface Medication {
   reminder_delay_min: number;
   changes: { id: number; date: string; old_dose_mg: number | null; new_dose_mg: number | null; note: string | null }[];
 }
+
+// ------------------------------------------------------------------ aerobic fitness (D3)
+export interface FitnessPoint {
+  date: string;
+  observed: number | null;
+  adjusted: number | null;
+  level: number | null;
+  level_lo80: number | null;
+  level_hi80: number | null;
+  n_obs: number;
+}
+export interface FitnessMetric {
+  latest: (FitnessPoint & { slope_week: number | null; slope_lo80: number | null; slope_hi80: number | null; model: string }) | null;
+  learning: boolean;
+  adjusted_for: string[];
+  series: FitnessPoint[];
+}
+export interface FitnessData {
+  min_runs: number;
+  aerobic_pace: FitnessMetric;
+  vo2max: FitnessMetric;
+  decoupling: { threshold_pct: number; recent: { date: string; decoupling_pct: number }[]; share_good: number | null };
+}

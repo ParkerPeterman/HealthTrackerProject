@@ -75,6 +75,13 @@ def _sessions_step(since: date | None) -> int:
         return build_session_features(conn, since)
 
 
+def _fitness_step(d: date) -> int:
+    from healthtracker.features.fitness import build_fitness
+
+    with connect() as conn:
+        return build_fitness(conn, d)
+
+
 def _load_step(d: date) -> int:
     """One internal load scale and the daily channels (A6)."""
     with connect() as conn:
@@ -132,6 +139,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
     run_step("nightly", "load", lambda: _load_step(d), report)
     run_step("nightly", "daily_features", lambda: _features_step(d), report)
     run_step("nightly", "baselines", lambda: _baselines_step(d), report)
+    run_step("nightly", "fitness", lambda: _fitness_step(d), report)
     run_step("nightly", "medication_features", lambda: _medication_step(d), report)
 
     def grade() -> int:
@@ -222,6 +230,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
     run_step("backfill", "daily_features", features, report)
     run_step("backfill", "baselines", lambda: _baselines_step(end, start - timedelta(days=60)), report)
     run_step("backfill", "medication_features", lambda: _medication_step(end), report)
+    run_step("backfill", "fitness", lambda: _fitness_step(end), report)
 
     def days() -> int:
         from healthtracker.planning.weekly import grade_week_plan, write_week_plan

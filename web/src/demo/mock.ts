@@ -1133,6 +1133,23 @@ routes.push(
   }],
 );
 
+routes.push(["GET", /^\/fitness$/, () => {
+  const series = Array.from({ length: 12 }, (_, k) => {
+    const level = 322 - k * 1.1;
+    return { date: day(-77 + k * 7), observed: level + jitter(5), adjusted: level + jitter(3), level,
+      level_lo80: level - 2.2, level_hi80: level + 2.2, n_obs: 8 + k * 2 };
+  });
+  const last = series.at(-1)!;
+  return {
+    min_runs: 10,
+    aerobic_pace: { latest: { ...last, slope_week: -1.1, slope_lo80: -1.6, slope_hi80: -0.6, model: "local_linear_trend" },
+      learning: false, adjusted_for: ["temp", "duration"], series },
+    vo2max: { latest: { date: TODAY, observed: 52, adjusted: 52, level: 51.8, level_lo80: 51.5, level_hi80: 52.1, n_obs: 20,
+      slope_week: 0.1, slope_lo80: 0, slope_hi80: 0.2, model: "local_linear_trend" }, learning: false, adjusted_for: [], series: [] },
+    decoupling: { threshold_pct: 5, recent: [{ date: day(-12), decoupling_pct: 6.1 }, { date: day(-5), decoupling_pct: 4.2 }], share_good: 0.5 },
+  };
+}]);
+
 // Demo mode has no medication: it is sensitive, and demo screenshots never show it (H5).
 routes.push(
   ["GET", /^\/medication\/today$/, () => ({ date: TODAY, medications: [] })],

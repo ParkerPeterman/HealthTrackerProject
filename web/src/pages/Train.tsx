@@ -1,10 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, PHASE_LABEL, type IntensityWeek, type Planned, type PlanReason, type SeasonData, type Workout } from "../api";
+import {
+  api, PHASE_LABEL, type FitnessData, type IntensityWeek, type Planned, type PlanReason, type SeasonData, type Workout,
+} from "../api";
 import { cap, Chips, Empty, Icon, Scale, sessionLook, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { addDays, dayLabel, isoDate, toLocalInput } from "../dates";
-import { fmtDuration, showDistance, showPace, distUnit } from "../units";
+import { fmtDuration, pace_s_per_km, showDistance, showPace, distUnit } from "../units";
 import { LibraryDetail, LibraryPicker } from "./Library";
 import { TestsCard } from "./Tests";
 
@@ -103,6 +105,8 @@ export default function Train() {
           </div>
         ))}
       </div>
+
+      <FitnessCard />
 
       <TestsCard />
 
@@ -349,5 +353,54 @@ export function PlanReasonView({ reason, optional }: { reason: PlanReason; optio
       </div>
       {lines.map((l) => <div key={l} className="tiny muted">{l}.</div>)}
     </div>
+  );
+}
+
+const COVARIATE: Record<string, string> = { temp: "temperature", humid: "humidity", climb: "climb", duration: "run length" };
+
+/** D3: aerobic fitness as pace at the reference HR, at reference conditions, with its trend. */
+function FitnessCard() {
+  const units = useUnits();
+  const { data } = useQuery({ queryKey: ["fitness"], queryFn: () => api.get<FitnessData>("/fitness") });
+  const pace = data?.aerobic_pace;
+  const t = pace?.latest;
+  if (!data || !t || t.level == null) return null;
+  const perUnit = (v: number) => (units === "imperial" ? v * 1.609344 : v);
+  const slope = t.slope_week, lo = t.slope_lo80, hi = t.slope_hi80;
+  let trend = "";
+  if (!pace.learning && slope != null && lo != null && hi != null) {
+    const s = (v: number) => `${Math.abs(perUnit(v)).toFixed(1)}`;
+    trend = hi < 0 ? `Improving about ${s(slope)} s/${distUnit(units)} a week (80% range ${s(hi)}–${s(lo)}).`
+      : lo > 0 ? `Slower by about ${s(slope)} s/${distUnit(units)} a week (80% range ${s(lo)}–${s(hi)}).`
+        : "No clear change yet.";
+  }
+  const vo2 = data.vo2max.latest;
+  const dec = data.decoupling;
+  return (
+    <section className="card stack" aria-label="Aerobic fitness">
+      <div className="spread"><h3>Aerobic fitness</h3><span className="tiny muted">pace at your reference HR</span></div>
+      <div className="row" style={{ alignItems: "baseline", gap: 10 }}>
+        <span className="big-num md">{pace_s_per_km(t.level, units)}</span>
+        {t.level_lo80 != null && t.level_hi80 != null && (
+          <span className="tiny muted">80% range {pace_s_per_km(t.level_lo80, units)}–{pace_s_per_km(t.level_hi80, units)}</span>
+        )}
+      </div>
+      <p className="small" style={{ margin: 0 }}>
+        {pace.learning ? `Still learning: ${t.n_obs} of ${data.min_runs} steady runs.` : trend}
+        {pace.adjusted_for.length ? ` Adjusted for ${pace.adjusted_for.map((c) => COVARIATE[c] ?? c).join(", ")}.` : ""}
+        {" "}Lower is fitter.
+      </p>
+      {vo2?.level != null && (
+        <p className="tiny muted" style={{ margin: 0 }}>
+          Garmin VO₂ max, smoothed: {vo2.level.toFixed(1)}. It depends on the max HR set in your Garmin profile.
+        </p>
+      )}
+      {dec.recent.length > 0 && (
+        <p className="tiny muted" style={{ margin: 0 }}>
+          Decoupling on recent long steady runs: {dec.recent.map((r) => `${r.decoupling_pct.toFixed(1)}%`).join(", ")}
+          {" "}(under {dec.threshold_pct}% is good aerobic durability).
+        </p>
+      )}
+    </section>
   );
 }
