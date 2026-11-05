@@ -106,9 +106,11 @@ def days_to(loc: float, scale: float, dof: float, swc: float, n: int, target: fl
     return hi - n
 
 
-def fit(X: np.ndarray, y: np.ndarray, consecutive: np.ndarray, m0: np.ndarray, v0: np.ndarray) -> dict | None:
-    """Prewhiten, then the conjugate update. Columns of X are standardized (plus a constant)."""
-    Xs, ys, rho = prewhiten(X, y, consecutive)
+def fit(X: np.ndarray, y: np.ndarray, consecutive: np.ndarray, m0: np.ndarray, v0: np.ndarray,
+        ar: bool = True) -> dict | None:
+    """Prewhiten (unless the rows aren't a daily series), then the conjugate update.
+    Columns of X are standardized (plus a constant)."""
+    Xs, ys, rho = prewhiten(X, y, consecutive) if ar else (X, y, 0.0)
     if len(ys) < MIN_DAYS:
         return None
     mn, vn, an, bn = nig_posterior(Xs, ys, m0, v0)
