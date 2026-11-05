@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     llm_timeout_s: float = 180.0
     prompt_version: str = "v2"  # v2: no medication, painkillers, or extra water (H4)
 
+    # Weather (Open-Meteo, A7). Home location is rounded to 0.1 degree (about 11 km) before any
+    # request; only the rounded point and dates are ever sent.
+    home_lat: float | None = None
+    home_lon: float | None = None
+    weather_enabled: bool = True
+
     # Data quality
     partial_day_wear_min: int = 1200     # under 20h of all-day HR = partial day
     feature_rebuild_days: int = 14       # nightly rebuild window for daily_features

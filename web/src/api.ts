@@ -181,6 +181,11 @@ export interface SessionFeatures {
   srpe?: number | null;
   internal_load?: number | null;
   load_method?: "trimp" | "srpe_calibrated" | null;
+  temp_c?: number | null;         // A7 weather at the session's midpoint
+  dew_point_c?: number | null;
+  wind_kmh?: number | null;
+  precip_mm?: number | null;
+  weather_source?: "archive" | "forecast" | null;
 }
 
 export interface Exercise {

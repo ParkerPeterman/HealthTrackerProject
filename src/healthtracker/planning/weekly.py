@@ -31,7 +31,9 @@ Code decides every session, day, and size; the LLM is not involved.
    give the same plan and no new version. Each week's plan is graded afterwards on
    adherence (planned sessions matched to workouts) and response.
 
-Weather swaps (A7) and the medication readiness flag (H4) plug in here once they exist.
+Weather (A7): on a day the forecast calls icy or very cold, outdoor intervals and runs are
+marked for a treadmill or bike, and outdoor sprint work is dropped (the day stays a strength
+day). The medication readiness flag (H4) plugs in here once it leaves shadow.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ import psycopg
 
 from healthtracker.db import execute, fetch_all, fetch_one, insert, upsert
 from healthtracker.features.load import current_factor
+from healthtracker.ingest.weather import ATTRIBUTION, bad_for_outdoors, daily_forecast
 from healthtracker.jsonutil import to_jsonable
 from healthtracker.planning.library import (
     DayState,
@@ -96,6 +99,7 @@ class PlanInputs:
     goals: list[str] = field(default_factory=list)
     params: dict[str, dict[str, float]] = field(default_factory=dict)
     factor: float = 0.4                          # TRIMP units per sRPE unit (A6 calibration)
+    weather: dict[date, dict] = field(default_factory=dict)  # home daily forecast (A7)
 
     def p(self, name: str) -> float:
         return float(self.params.get("ANALYSIS_PLAN", {}).get(name, DEFAULTS[name]))
@@ -416,6 +420,7 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
         week.place(slots[k])
 
     f = inp.factor
+    weather = apply_weather(week)
     caps = plan_caps(inp)
     fixed = {"run": sum(_fixed_load(s, f) for s in inp.fixed if s["sport"] == "run"),
              "total": sum(_fixed_load(s, f) for s in inp.fixed), "sprint": 0.0, "plyo": 0.0}
@@ -463,11 +468,29 @@ def build_plan(inp: PlanInputs, lib: dict[str, dict], meta: dict[str, dict]) -> 
                       "easy_pct": round((run_min - hard_min) / run_min * 100, 1) if run_min else None,
                       "easy_target_pct": easy_target},
         "games": sorted(str(g) for g in week.games), "dropped": week.dropped,
+        "weather": weather, "attribution": ATTRIBUTION if inp.weather else None,
         "levels": {"vo2": list(inp.vo2_level), "copenhagen": list(inp.copenhagen)},
         "names": {a["code"]: a["name"] for p in week.placed for a in p.addons},
         "sessions": sessions,
         "fixed": [{k: s.get(k) for k in ("date", "sport", "session_type", "planned_duration_min")} for s in inp.fixed],
     }
+
+
+def apply_weather(week: Week) -> dict[str, str]:
+    """A7 swaps: icy or very cold days move outdoor quality work inside or drop outdoor sprints."""
+    p = week.inp.params.get("ANALYSIS_WEATHER", {})
+    bad = {d: why for d, day in week.inp.weather.items() if (why := bad_for_outdoors(day, p))}
+    for pl in list(week.placed):
+        why = bad.get(week.dates[pl.day])
+        if not why or not pl.entry["outdoor"]:
+            continue
+        if pl.entry["weather_swap"] == "indoor":
+            pl.notes.append(f"forecast {why}: do it on a treadmill or bike")
+        elif pl.entry["weather_swap"] == "strength":
+            week.placed.remove(pl)
+            week.dropped.append({"slot": pl.slot.role, "optional": pl.slot.optional,
+                                 "reasons": {pl.code: [f"forecast {why}: no outdoor sprinting"]}})
+    return {str(d): why for d, why in sorted(bad.items())}
 
 
 def _fixed_load(s: dict, factor: float) -> float:
@@ -572,7 +595,8 @@ def gather(conn: psycopg.Connection, week_start: date) -> PlanInputs:
                    "total": f.get("load_week")},
         chronic_week=f["chronic_ewma"] * 7 if f.get("chronic_ewma") is not None else None,
         caution=caution, vo2_level=vo2_level(conn, week_start, phase, bool(caution)),
-        copenhagen=copenhagen_level(conn, week_start, tz), goals=goals, params=params, factor=current_factor(conn))
+        copenhagen=copenhagen_level(conn, week_start, tz), goals=goals, params=params, factor=current_factor(conn),
+        weather=daily_forecast(conn, week_start, end))
 
 
 def inputs_snapshot(inp: PlanInputs) -> dict:
@@ -586,7 +610,10 @@ def inputs_snapshot(inp: PlanInputs) -> dict:
         "fixed": [{k: s.get(k) for k in ("date", "sport", "session_type", "planned_duration_min", "origin")}
                   for s in inp.fixed],
         "params": {k: v for k, v in inp.params.items()
-                   if k in ("ANALYSIS_PLAN", "TRAIN_RUN_RAMP", "TRAIN_CHANNEL_RAMP", "TRAIN_LOAD_RAMP", "TRAIN_INTENSITY_MIX")},
+                   if k in ("ANALYSIS_PLAN", "TRAIN_RUN_RAMP", "TRAIN_CHANNEL_RAMP", "TRAIN_LOAD_RAMP", "TRAIN_INTENSITY_MIX",
+                            "ANALYSIS_WEATHER")},
+        "weather": {str(d): {k: w.get(k) for k in ("tmin_c", "tmax_c", "precip_mm", "snowfall_cm", "weather_code",
+                                                   "source")} for d, w in sorted(inp.weather.items())},
     })
 
 
@@ -629,6 +656,11 @@ def render_plan(plan: dict) -> str:
     left_out = [x["slot"].replace("_", " ") for x in plan["dropped"] if not x["optional"]]
     if left_out:
         lines += ["", f"Left out this week: {', '.join(left_out)} (see each session's reason)."]
+    if plan.get("weather"):
+        days = "; ".join(f"{date.fromisoformat(d):%a} {why}" for d, why in plan["weather"].items())
+        lines += ["", f"Weather: {days}. Outdoor intervals move to a treadmill or bike; outdoor sprints wait."]
+    if plan.get("attribution"):
+        lines += ["", f"_{plan['attribution']}_"]
     return "\n".join(lines)
 
 
@@ -649,7 +681,8 @@ def write_week_plan(conn: psycopg.Connection, week_start: date) -> int:
     version = (fetch_one(conn, "SELECT max(version) AS v FROM analytics.week_plan WHERE week_start = %s",
                          (week_start,))["v"] or 0) + 1
     summary = {k: plan[k] for k in ("target_load", "reason", "chronic_weekly_load", "caps", "last_week", "planned",
-                                    "fixed_load", "planned_load", "intensity", "games", "dropped", "levels", "names")}
+                                    "fixed_load", "planned_load", "intensity", "games", "dropped", "levels", "names",
+                                    "weather", "attribution")}
     plan_id = insert(conn, "analytics.week_plan", {
         "week_start": week_start, "version": version, "phase": plan["phase"], "inputs": plan["inputs"],
         "summary": to_jsonable(summary), "plan_hash": h})

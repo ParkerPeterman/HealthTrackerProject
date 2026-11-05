@@ -81,6 +81,14 @@ def _load_step(d: date) -> int:
         return build_load(conn, d) + build_intensity_weekly(conn)
 
 
+def _weather_step(d: date) -> int:
+    """A7: Open-Meteo forecast and archive gaps (rounded points and dates only)."""
+    from healthtracker.ingest.weather import pull_weather
+
+    with connect() as conn:
+        return pull_weather(conn, d)
+
+
 def _medication_step(d: date) -> int:
     from healthtracker.medication.features import build_medication_daily
 
@@ -112,6 +120,7 @@ def nightly(d: date | None = None, skip_ingest: bool = False, use_llm: bool | No
 
     if not skip_ingest:
         run_step("nightly", "ingest_garmin", lambda: pull(lookback, d), report)
+        run_step("nightly", "weather", lambda: _weather_step(d), report)
 
     def transform() -> int:
         with connect() as conn:
@@ -190,6 +199,14 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
             return load_all(conn, None, end)
 
     run_step("backfill", "core", transform, report)
+
+    def weather() -> int:
+        from healthtracker.ingest.weather import load_weather
+
+        with connect() as conn:
+            return load_weather(conn)
+
+    run_step("backfill", "weather", weather, report)
     run_step("backfill", "zones", _zones_step, report)
     run_step("backfill", "sessions", lambda: _sessions_step(start - timedelta(days=60)), report)
     run_step("backfill", "load", lambda: _load_step(end), report)

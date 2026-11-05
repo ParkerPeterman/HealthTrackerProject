@@ -261,7 +261,20 @@ cd web && npx tsc -b                               # typecheck the app
 
 ## Privacy
 
-Real data lives in the Postgres volume and `./secrets` and never leaves the machine. Two outbound
-calls exist: Garmin Connect (your own account) and Open Food Facts (barcode lookups send only the
-barcode number). `.env`, `secrets/`, and `data/` are git-ignored. This is not a medical device;
-anything concerning goes to a doctor or physical therapist.
+Real data lives in the Postgres volume and `./secrets` and never leaves the machine. Three outbound
+calls exist, and any other needs sign-off:
+
+- **Garmin Connect** (your own account).
+- **Open Food Facts**: barcode lookups send only the barcode number.
+- **Open-Meteo** (weather for outdoor sessions and the week's forecast): sends only a latitude and
+  longitude rounded to 0.1 degree (about 11 km) and dates. The point is `HOME_LAT`/`HOME_LON` from
+  `.env`, or on a day tagged as travel the session's rounded start point; GPS tracks never leave the
+  machine. Leave `HOME_LAT` unset (or `WEATHER_ENABLED=false`) and no weather call is made. Weather data
+  by [Open-Meteo.com](https://open-meteo.com/).
+
+Medication data (the daily check) is sensitive: it never reaches the LLM or the recommendation
+snapshot, the dashboard shows it only behind an opt-in toggle, demo screenshots never include it, and
+there are no push notifications (web push would route through Google's or Apple's servers).
+
+`.env`, `secrets/`, and `data/` are git-ignored. This is not a medical device; anything concerning goes
+to a doctor or physical therapist.

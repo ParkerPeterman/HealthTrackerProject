@@ -22,6 +22,7 @@ import psycopg
 from healthtracker.db import execute, fetch_all, fetch_df, upsert
 from healthtracker.features.daily import impute_rpe, pace_at_ref_hr
 from healthtracker.features.zones import Zones, current_zones
+from healthtracker.ingest.weather import home_point, session_point, weather_at
 from healthtracker.profile import load_profile
 
 SPEED_JUMP_SPORTS = {"speed", "sprints", "plyometrics"}
@@ -205,6 +206,9 @@ def session_rows(conn: psycopg.Connection, workout_ids: list[int]) -> list[dict]
                                WHERE workout_id = ANY(%s) AND distance_m >= 400 AND split_no > 1""", (workout_ids,))
     plyo = _plyo_from_sets(conn)
     rest = resting_hr_by_date(conn)
+    home = home_point()
+    travel = {r["d"] for r in fetch_all(conn, """SELECT DISTINCT (ts AT TIME ZONE %s)::date AS d FROM core.behavior_event
+                                                 WHERE type_code = 'travel'""", (profile.timezone,))}
     by_workout = dict(tuple(samples.groupby("workout_id"))) if not samples.empty else {}
     rows = []
     for w in workouts:
@@ -272,6 +276,13 @@ def session_rows(conn: psycopg.Connection, workout_ids: list[int]) -> list[dict]
                 row["gap_s_km"] = grade_adjusted_pace(bins)
                 if row["session_type"] in ("easy", "long", "tempo"):
                     row["decoupling_pct"], row["hr_drift_pct"] = decoupling(bins, minutes, p)
+
+        # A7: weather at the session's midpoint, at home or (travel days) the rounded start point.
+        point = session_point({**w, "travel": w["date"] in travel}, home)
+        wx = weather_at(conn, point, w["start_ts"] + timedelta(seconds=w["duration_s"] / 2)) if point else None
+        for k in ("temp_c", "dew_point_c", "wind_kmh", "precip_mm"):
+            row[k] = wx[k] if wx else None
+        row["weather_source"] = wx["source"] if wx else None
         rows.append(row)
     return rows
 
@@ -286,6 +297,7 @@ def build_session_features(conn: psycopg.Connection, since: date | None = None) 
         conn,
         """SELECT w.id FROM core.v_workout w LEFT JOIN analytics.session_features f ON f.workout_id = w.id
            WHERE f.workout_id IS NULL OR f.zones_version IS DISTINCT FROM %s
+              OR f.weather_source = 'forecast'   -- until the archive replaces the stand-in
               OR (%s::date IS NOT NULL AND (w.start_ts AT TIME ZONE %s)::date >= %s)""",
         (zones.version if zones else None, since, profile.timezone, since))]
     rows = session_rows(conn, ids)

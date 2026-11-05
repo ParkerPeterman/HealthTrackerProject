@@ -116,6 +116,18 @@ with right:
         fig.update_layout(hovermode="closest")
         c.show(fig, vol, key="volume")
 
+st.subheader("Runs and weather")
+runs = c.query("""SELECT date, session_type, duration_min, pace_at_ref_hr_s_km, decoupling_pct, temp_c, dew_point_c,
+                         wind_kmh, weather_source FROM analytics.session_features
+                  WHERE sport = 'run' AND date >= %s ORDER BY date DESC""", (start,))
+if runs.empty:
+    c.empty_state("No runs in this range.")
+else:
+    st.dataframe(runs, hide_index=True, width="stretch")
+    if runs["temp_c"].notna().any():
+        st.caption("Temperature, dew point, and wind at each run's midpoint (forecast values are provisional until "
+                   "the archive catches up). Weather data by [Open-Meteo.com](https://open-meteo.com/).")
+
 st.subheader("Plan vs actual")
 plan = c.query("""SELECT p.date, coalesce(p.notes, p.sport) AS session, p.session_type,
                          p.planned_duration_min AS planned_min, p.planned_rpe, p.status, p.origin, p.optional,

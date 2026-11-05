@@ -203,6 +203,14 @@ function SessionCard({ f, units }: { f: SessionFeatures; units: "imperial" | "me
           Decoupling compares pace per heartbeat in the first and second half (warm-up skipped). Under about 5% means good aerobic durability.
         </p>
       )}
+      {f.temp_c != null && (
+        <p className="tiny muted" style={{ margin: 0 }}>
+          Weather: {units === "imperial" ? `${Math.round(f.temp_c * 9 / 5 + 32)}°F` : `${Math.round(f.temp_c)}°C`}
+          {f.dew_point_c != null && `, dew point ${units === "imperial" ? `${Math.round(f.dew_point_c * 9 / 5 + 32)}°F` : `${Math.round(f.dew_point_c)}°C`}`}
+          {f.wind_kmh != null && `, wind ${units === "imperial" ? `${Math.round(f.wind_kmh / 1.609)} mph` : `${Math.round(f.wind_kmh)} km/h`}`}
+          {f.weather_source === "forecast" ? " (provisional until the archive catches up)" : ""}. Weather data by Open-Meteo.com
+        </p>
+      )}
     </section>
   );
 }
