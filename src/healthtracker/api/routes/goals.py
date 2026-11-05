@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, model_validator
 
 from healthtracker.api.deps import bad_request, get_conn, local_date, not_found
+from healthtracker.components import component_status, is_live
 from healthtracker.db import execute, fetch_all, fetch_one, insert
 from healthtracker.goals.metrics import METRICS, best_e1rm_kg, current_value
 from healthtracker.goals.progress import goal_progress
@@ -79,6 +80,21 @@ def list_goals(include_inactive: bool = True, day: date | None = None,
                conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     rows = fetch_all(conn, "SELECT * FROM core.goal WHERE active OR %s ORDER BY active DESC, id", (include_inactive,))
     return to_jsonable(_with_progress(conn, rows, day or local_date(conn)))
+
+
+@router.get("/forecasts")
+def forecasts(day: date | None = None, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """G2: the latest forecast per series, with its backtest against naive. `shown` only once live and better."""
+    d = day or local_date(conn)
+    live = is_live(component_status(conn), "COMP_FORECASTS")
+    rows = fetch_all(conn, """SELECT DISTINCT ON (metric, model) computed_on, metric, model, n_obs, last_date, last_value,
+                                     horizon_days, test_horizon_days, headline, backtest_n, mae_model, mae_naive,
+                                     coverage80, beats_naive
+                              FROM analytics.forecast WHERE computed_on <= %s
+                              ORDER BY metric, model, computed_on DESC""", (d,))
+    for r in rows:
+        r["shown"] = live and r["beats_naive"]
+    return to_jsonable({"live": live, "forecasts": rows})
 
 
 @router.get("/goals/metrics")

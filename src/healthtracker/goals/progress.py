@@ -16,6 +16,7 @@ import psycopg
 
 from healthtracker.goals.energy import projected_date, trend_slope_kg_per_week
 from healthtracker.goals.metrics import METRICS, current_value, daily_hits
+from healthtracker.stats.forecast import goal_forecast
 
 MAINTAIN_BAND_KG = 1.0       # ±1 kg (about 2 lb) counts as holding
 MIN_TOLERANCE_KG = 0.45      # about 1 lb: never "behind" for less than this
@@ -127,5 +128,14 @@ def goal_progress(conn: psycopg.Connection, goal: dict, features: pd.DataFrame, 
         return {"metric": metric, **habit_progress(goal, features, as_of)}
     current = current_value(conn, features, metric, as_of, goal.get("exercise_id"))
     if metric == "weight_kg":
-        return {"metric": metric, **weight_progress(goal, features, current, as_of)}
-    return {"metric": metric, **level_progress(goal, current, as_of)}
+        out = {"metric": metric, **weight_progress(goal, features, current, as_of)}
+        direction = _direction(goal, goal.get("start_value"), goal.get("target_value"))
+        better = {"decrease": "lower", "increase": "higher"}.get(direction)
+    else:
+        out = {"metric": metric, **level_progress(goal, current, as_of)}
+        better = spec.better
+    if better and out["status"] not in ("achieved", "no_data"):
+        eta = goal_forecast(conn, goal, as_of, better)  # G2: a date range, once forecasts are live
+        if eta:
+            out["eta"] = eta
+    return out

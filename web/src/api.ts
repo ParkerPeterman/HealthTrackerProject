@@ -412,6 +412,15 @@ export interface Experiment {
 export type GoalType = "body_weight" | "performance" | "health" | "habit";
 export type GoalStatus = "achieved" | "ahead" | "on_track" | "behind" | "in_progress" | "no_data" | "not_tracked";
 
+/** G2: when the forecast level reaches the target: most likely, and the 80% range (null: not within a year). */
+export interface GoalEta {
+  likely: string | null;
+  earliest: string | null;
+  latest: string | null;
+  computed_on: string;
+  backtest_n: number;
+}
+
 export interface GoalProgress {
   status: GoalStatus;
   metric?: string;
@@ -422,6 +431,7 @@ export interface GoalProgress {
   expected?: number | null;
   rate_per_week?: number | null;      // weight: actual trend, kg/week
   projected_date?: string | null;
+  eta?: GoalEta;                      // G2: arrival dates from a forecast that beats naive (once live)
   days?: { date: string; value: number | null; hit: boolean | null }[];
   hits?: number;
   needed?: number;

@@ -120,6 +120,12 @@ def _session_response(conn, d: date) -> int:
     return build_session_response(conn, d)
 
 
+def _forecasts(conn, d: date) -> int:
+    from healthtracker.stats.forecast import build_forecasts
+
+    return build_forecasts(conn, d)
+
+
 def _fitness_fatigue(conn, d: date) -> int:
     from healthtracker.features.fitness_fatigue import build_fitness_fatigue
 
@@ -225,6 +231,7 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "fitness_fatigue", step(_fitness_fatigue), report)  # D2 (shadow)
     run_step("weekly", "session_response", step(_session_response), report)  # D5 (shadow)
     run_step("weekly", "long_term", step(_long_term), report)  # E4
+    run_step("weekly", "forecasts", step(_forecasts), report)  # G2 (shown once live and better than naive)
     run_step("weekly", "medication_analysis", step(_med_analysis), report)  # H3, sensitive, shadow
     run_step("weekly", "parameter_tuning", step(run_tuning), report)
     run_step("weekly", "rule_promotion", step(run_promotion), report)
@@ -322,4 +329,10 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
             return _long_term(conn, end)
 
     run_step("backfill", "long_term", long_term, report)
+
+    def forecasts() -> int:
+        with connect() as conn:
+            return _forecasts(conn, end)
+
+    run_step("backfill", "forecasts", forecasts, report)
     return report

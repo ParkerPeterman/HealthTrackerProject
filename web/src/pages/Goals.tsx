@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  api, type Goal, type GoalMetrics, type GoalPlan, type GoalType, type Target,
+  api, type Goal, type GoalEta, type GoalMetrics, type GoalPlan, type GoalType, type Target,
 } from "../api";
 import { Bar, Chips, Empty, Icon, Ring, Sheet, Stepper, useRun, useUnits } from "../components/ui";
 import { dayLabel } from "../dates";
@@ -18,6 +18,14 @@ const TYPE_LOOK: Record<GoalType, { icon: string; hue: string; label: string }> 
 
 const perWeek = (kg: number, units: Units) => `${fromKg(Math.abs(kg), units).toFixed(units === "imperial" ? 1 : 2)} ${weightUnit(units)}/wk`;
 const shortDate = (iso: string) => new Date(iso + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+const monthDay = (iso: string) => new Date(iso + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+/** G2: "Likely around Mar 10 (80%: Feb 2 – May 1)" or "(80%: from Feb 2; maybe not within a year)". */
+function etaText(eta: GoalEta): string | null {
+  if (!eta.earliest) return null;
+  const range = eta.latest ? `${monthDay(eta.earliest)} – ${shortDate(eta.latest)}` : `from ${monthDay(eta.earliest)}; maybe not within a year`;
+  return eta.likely ? `Likely around ${shortDate(eta.likely)} (80%: ${range})` : `Not likely within a year at this trend (80%: ${range})`;
+}
 
 // ------------------------------------------------------------------ page
 export default function Goals() {
@@ -123,6 +131,7 @@ function WeightGoalCard({ goal, units, onEdit }: { goal: Goal; units: Units; onE
           {!maintain && <><dt>Lands</dt><dd>{p.projected_date ? shortDate(p.projected_date) : <span className="muted">not at this pace</span>}</dd></>}
         </dl>
       </div>
+      {p.eta && etaText(p.eta) && <div className="tiny muted" style={{ marginTop: -8 }}>Forecast: {etaText(p.eta)}.</div>}
       <div className="spread small" style={{ paddingTop: 12, borderTop: "1px solid var(--line)" }}>
         <span className="row" style={{ gap: 8 }}><Icon name="flame" size={16} />
           <span className="num">
@@ -187,6 +196,7 @@ function GoalCard({ goal, units, onEdit }: { goal: Goal; units: Units; onEdit: (
             <span className="muted">Target <b className="num" style={{ color: "var(--ink)", fontWeight: 600 }}>{fmtMetric(goal.metric, goal.target_value, units)}</b></span>
           </div>
           <Bar value={p.pct ?? 0} target={1} hue={st.hue === "muted" ? look.hue : st.hue} />
+          {p.eta && etaText(p.eta) && <span className="tiny muted">Forecast: {etaText(p.eta)}.</span>}
         </div>
       )}
     </button>
