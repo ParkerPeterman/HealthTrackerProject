@@ -19,19 +19,31 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | D1 | Uncoupled acute/chronic EWMAs, weekly change; `TRAIN_RUN_RAMP`, `TRAIN_CHANNEL_RAMP` via shared `planning/ramp.py`; ACWR descriptive only | 013 |
 | D4 | `analytics.intensity_weekly`, 14-day easy/moderate shares, `TRAIN_INTENSITY_MIX` | 014 |
 | F1 | Season phases (`core.season`, `core.season_phase`) from the first game (default Apr 1); Settings card; phase on Train and in `RuleContext.phase` | 015 |
+| F2 | `knowledge.session_library` (29 sessions + sprint technique), fit checks and exercise swaps (`planning/library.py`), Copenhagen levels, sore-shoulder tag + daily 0-10 check-in, `INJ_SHOULDER_SWAP`, `INJ_PHYSIO_PROMPT` | 016 |
+| F3 | Template planner (`planning/templates.py`, `planning/weekly.py`): greedy placement, spacing, ramp caps, structured reasons, versions (`analytics.week_plan`), weekly grading, VO2 3x3 -> 4x4 progression; Settings: main days, minutes, travel-day slots | 017 |
+| H1, H2, H5, H4 display | `core.medication*`, `analytics.medication_daily`, `analytics.medication_message`; Today check + yesterday question + badge; approved templates only, after the LLM guard; dashboard opt-in page; 988 in Settings; guard bans medication/painkiller/extra-water wording | 018 |
+| A7 | Open-Meteo (`ingest/weather.py`): rounded point + dates only; forecast + archive, cached in `raw.ingest`; session weather; planner icy/very-cold swaps; attribution; README Privacy | 019 |
+| D3 trend | `features/fitness.py`: pace at ref HR adjusted (Normal(0, 0.5 SD) priors), statsmodels local linear trend with 80% intervals, smoothed VO2 max, decoupling vs 5% | 020 |
+| E1 | `features/sleep.py`: Phillips SRI (sleep windows + naps, local clock), midpoint SD, weekend gap; 7/28 days | 021 |
+| E2 | `knowledge.feature_quality` tiers, `analytics.rule.inputs`; poor-only rules can't go active, poor-tier insights never supported; journal `sleep_quality` replaces motivation in the app | 022 |
+| C5 | Insight records (`stats/records.py`), fixed confidence words, guard rejects words not in the records | 023 |
 
 ## Next, in order
 
-Finish the items the brief marks live for the week of Nov 9 first:
+Everything the brief marks live for the week of Nov 9 is done. Next, the shadow items:
 
-1. **F2** session library (`knowledge.session_library`, new exercises: Copenhagen levels, landmine press, band ER/IR, CMJ/broad/depth jumps, trap-bar deadlift…), physio-prompt rule, shoulder/groin/hamstring handling.
-2. **F3** weekly plan generator (phase templates, Mon–Thu main days + optional Fri–Sun bonus slots, ramp caps from `planning/ramp.py`, spacing, injury restrictions, weather swaps once A7 exists, structured reason per session, plan versions). Replace the logic in `planning/weekly.py`; keep `test_weekly_plan_respects_games` passing. Add the guardrail tests: no plan exceeds a ramp cap; no hard session under a restriction.
-3. **H1, H2, H5** medication check (generic tables `core.medication`, `core.medication_change`, `core.medication_log`; Today card Taken / Not yet, yesterday prompt with "Don't remember"; features in a separate sensitive `analytics.medication_daily`; dashboard opt-in; demo uses a made-up drug name). Wire `features/baselines.reset_dates` (already reads `core.medication_change` once it exists).
-4. **H4 adherence display** with the approved templates (below), appended after the LLM guard; the LLM payload must never contain medication fields.
-5. **A7** Open-Meteo weather (`raw.ingest` source 'open_meteo', `core.weather_hourly/daily`, HOME_LAT/HOME_LON in .env rounded to 0.1°, attribution text, README Privacy update). Then the **D3 aerobic-fitness trend** (pace at ref HR with weather covariates, statsmodels local linear trend, decoupling threshold 5% as a parameter, smoothed VO2 max).
-6. **E1** sleep regularity (Phillips SRI, midpoint SD, weekday/weekend gap, 7/28-day); **E2** trust order (`knowledge.feature_quality`, journal `sleep_quality` replacing motivation in the UI, no stage-only insights, poor-tier rules can't be activated alone); **C5** structured insight records + confidence words + guard.
+1. **B1-B3**: conjugate Normal-Inverse-Gamma effect estimates after AR(1) prewhitening (P(|b| > SWC), 80/95% intervals, days to reach 0.8), `knowledge.effect_priors` with cited sources (Normal(0, 0.5 SD) where none), continuous doses. Swap C5's direction probability for P(meaningful) once B1 runs.
+2. **G1 v1** readiness score (0-100, weighted standardized deviations, top drivers; shadow).
+3. **F4** daily adjustment (keep / downgrade / swap / rest from A2 band, RHR, sleep, journal, H4 flag; shadow), reading the H4 readiness flag.
+4. **H3** medication analysis (weekly job, shadow): dose change = known change point, missed-dose B1 estimates with weak priors, dose time vs sleep, travel confounding, templates 6-8.
 
-Then the shadow items and later phases: B1–B7, C1–C4, D2, D5, E3–E5, F4–F7, G1–G5, H3, Section 13 evaluation (generator plants, calibration, backtests, shadow-comparison log, insight "new to me / knew it" rating, runtime check), README and design-notes updates.
+Then B4-B7, C1-C4, D2, D5, E3-E5, F5-F7, G2-G5, Section 13 evaluation, README and design-notes updates.
+
+## Judgment calls to raise with the owner
+
+- **VO2 build spacing.** The brief puts the two VO2 sessions on Wed and Thu, which breaks "no back-to-back hard days". The template uses Tue and Thu. Default spacing also lets a hard endurance day follow a sprint/strength day (otherwise only two hard days fit in Mon-Thu); `ANALYSIS_PLAN.strict_spacing = 1` forbids any adjacent hard days.
+- **Safety templates live.** The dizziness-in-training and lowest-mood (988) medication messages are live (`COMP_MED_SAFETY`), alongside the adherence display; the readiness template is in shadow.
+- **Journal**: mood and energy are among the journal taps, which answers the brief's open question for H4.
 
 ## Decisions already made by the owner
 
@@ -68,7 +80,7 @@ BIN=<scratch>/pgvenv/lib/python3.12/site-packages/pgserver/pginstall/bin
 $BIN/initdb -D <scratch>/pgdata -U health --auth=trust -E UTF8 --locale=C.UTF-8   # first time only
 $BIN/pg_ctl -D <scratch>/pgdata -o "-p 55432 -c unix_socket_directories='' -c listen_addresses=127.0.0.1 -c fsync=off" -l <scratch>/pg.log start
 export TEST_DATABASE_URL=postgresql://health@127.0.0.1:55432/healthtracker_test
-.venv/bin/pytest -q                  # ~140 tests, about a minute
+.venv/bin/pytest -q                  # ~220 tests, about a minute
 cd web && npx tsc -b                 # typecheck the app
 ```
 
