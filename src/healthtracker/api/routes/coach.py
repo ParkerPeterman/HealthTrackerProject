@@ -193,7 +193,7 @@ def put_rule_status(rule_id: str, body: StatusIn, conn: psycopg.Connection = Dep
     try:
         set_status(conn, rule_id, body.status)
     except ValueError as exc:
-        raise not_found(str(exc)) from exc
+        raise (not_found if "unknown" in str(exc) else bad_request)(str(exc)) from exc
     return {"ok": True}
 
 

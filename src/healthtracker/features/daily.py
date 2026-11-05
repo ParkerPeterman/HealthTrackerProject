@@ -46,6 +46,8 @@ FEATURE_COLUMNS = [
     "tag_shoulder", "shoulder_pain",
     # E1 sleep regularity
     "sri_7d", "sri_28d", "sri_pairs_28d", "midpoint_sd_7d", "midpoint_sd_28d", "weekend_gap_min_28d",
+    # E2 my own sleep rating
+    "sleep_quality",
 ]
 
 # One-tap tags (behavior_event codes) -> daily flag columns.
@@ -351,8 +353,10 @@ def compute_features(conn: psycopg.Connection, end: date) -> pd.DataFrame:
     wt = df["weight_kg_smoothed"].fillna(df["weight_kg"])
     df["protein_g_per_kg"] = (df["protein_g"] / wt).round(2)
 
-    journal = fetch_df(conn, "SELECT date, mood, energy, soreness, stress AS journal_stress FROM core.journal")
-    join(journal, ["mood", "energy", "soreness", "journal_stress"])
+    # The journal's sleep rating is for the night before the morning it's logged (the wake date).
+    journal = fetch_df(conn, """SELECT date, mood, energy, soreness, stress AS journal_stress, sleep_quality
+                                FROM core.journal""")
+    join(journal, ["mood", "energy", "soreness", "journal_stress", "sleep_quality"])
 
     context_flags(df, conn, tz)
     df = df.join(regularity(conn, tz, df.index, df["sleep_midpoint_min"]))
@@ -500,7 +504,7 @@ def build_daily_features(conn: psycopg.Connection, end: date, start: date | None
     int_cols = ["wear_minutes", "sleep_score", "sleep_total_min", "sleep_midpoint_min",
                 "resting_hr", "avg_stress", "body_battery_low", "n_workouts", "days_since_game",
                 "days_since_hard", "next_game_in_days", "mood", "energy", "soreness",
-                "max_pain_activity", "tz_offset_min", "sri_pairs_28d", "shoulder_pain"]
+                "max_pain_activity", "tz_offset_min", "sri_pairs_28d", "shoulder_pain", "sleep_quality"]
     rows = []
     for rec in df.to_dict("records"):
         row = {}

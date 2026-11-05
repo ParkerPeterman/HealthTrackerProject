@@ -324,7 +324,9 @@ class Generator:
                 mood = 3.7 + rng.normal(0, 0.6) - (1 if p.sick else 0) + (0.3 if p.game else 0)
                 insert(c, "core.journal", {
                     "date": d, "mood": _clip5(mood), "energy": _clip5(energy), "soreness": _clip5(sore),
-                    "stress": _clip5(2.5 + rng.normal(0, 0.7)), "motivation": _clip5(3.6 + rng.normal(0, 0.7)),
+                    # E2: sleep quality replaced motivation; same single draw, so no other effect moves.
+                    "stress": _clip5(2.5 + rng.normal(0, 0.7)),
+                    "sleep_quality": _clip5(3.6 + (total - 455) / 45 + rng.normal(0, 0.7)),
                     "note": "felt flat" if energy < 2.5 else None}, returning=None)
             if p.sick:
                 insert(c, "core.behavior_event", {"ts": local(d, 8), "type_code": "sick", "note": "head cold"},

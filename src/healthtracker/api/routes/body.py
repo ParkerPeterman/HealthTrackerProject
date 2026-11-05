@@ -58,7 +58,8 @@ class JournalIn(BaseModel):
     energy: Score = None
     soreness: Score = None
     stress: Score = None
-    motivation: Score = None
+    sleep_quality: Score = None   # E2: replaces motivation in the app
+    motivation: Score = None      # kept for history; the app no longer asks
     note: str | None = None
 
 
@@ -78,7 +79,8 @@ def journal_day(day: date, conn: psycopg.Connection = Depends(get_conn)) -> dict
 
 @router.put("/journal/{day}")
 def put_journal(day: date, body: JournalIn, conn: psycopg.Connection = Depends(get_conn)) -> dict:
-    upsert(conn, "core.journal", [{"date": day, **body.model_dump()}], conflict=["date"])
+    # Only the fields sent change, so older answers (motivation) aren't wiped by a newer form.
+    upsert(conn, "core.journal", [{"date": day, **body.model_dump(exclude_unset=True)}], conflict=["date"])
     return journal_day(day, conn)
 
 

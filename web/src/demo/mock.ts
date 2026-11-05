@@ -259,7 +259,7 @@ const injuries: Injury[] = [
 const journal: Journal[] = Array.from({ length: 14 }, (_, i) => {
   const d = day(-1 - i);
   const v = (b: number) => Math.max(1, Math.min(5, Math.round(b + jitter(1.1))));
-  return { date: d, energy: v(3.6), mood: v(3.9), soreness: v(i === 0 ? 3.4 : 2.3), stress: v(2.4), motivation: v(3.8),
+  return { date: d, energy: v(3.6), mood: v(3.9), soreness: v(i === 0 ? 3.4 : 2.3), stress: v(2.4), motivation: null, sleep_quality: v(3.7),
     note: i === 3 ? "Slept badly, neighbours" : null };
 });
 

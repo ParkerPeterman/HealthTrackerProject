@@ -324,7 +324,8 @@ export interface Journal {
   energy: number | null;
   soreness: number | null;
   stress: number | null;
-  motivation: number | null;
+  motivation: number | null;     // history only; sleep_quality replaced it (E2)
+  sleep_quality?: number | null;
   note: string | null;
 }
 

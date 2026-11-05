@@ -14,6 +14,7 @@ import psycopg
 from scipy import stats as sps
 
 from healthtracker.db import execute, fetch_all, fetch_one, insert
+from healthtracker.quality import activation_problem
 
 MIN_GRADED = 20
 MIN_PER_ARM = 8
@@ -83,6 +84,8 @@ def decide_status(conn: psycopg.Connection, change_id: int, approve: bool) -> di
     row = fetch_one(conn, "SELECT * FROM analytics.rule_status_change WHERE id = %s", (change_id,))
     if not row or row["approved"] is not None:
         raise ValueError("no pending status change with that id")
+    if approve and row["new_status"] == "active" and (problem := activation_problem(conn, row["rule_id"])):
+        raise ValueError(problem)
     if approve:
         execute(conn, "UPDATE analytics.rule SET status = %s, reviewed_at = %s WHERE rule_id = %s",
                 (row["new_status"], date.today(), row["rule_id"]))
@@ -95,6 +98,8 @@ def set_status(conn: psycopg.Connection, rule_id: str, status: str) -> None:
     row = fetch_one(conn, "SELECT status FROM analytics.rule WHERE rule_id = %s", (rule_id,))
     if not row:
         raise ValueError("unknown rule")
+    if status == "active" and (problem := activation_problem(conn, rule_id)):
+        raise ValueError(problem)
     execute(conn, "UPDATE analytics.rule SET status = %s, reviewed_at = %s WHERE rule_id = %s",
             (status, date.today(), rule_id))
     insert(conn, "analytics.rule_status_change", {

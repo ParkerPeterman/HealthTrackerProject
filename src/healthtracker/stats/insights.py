@@ -8,6 +8,7 @@ import pandas as pd
 import psycopg
 
 from healthtracker.db import execute, fetch_all, fetch_df, insert
+from healthtracker.quality import insight_problem, tiers
 from healthtracker.stats.hypothesis import DEFAULT_EXCLUDES, Hypothesis, finalize, run_test
 
 
@@ -30,6 +31,11 @@ def run_insights(conn: psycopg.Connection, as_of: date) -> int:
             for r in rows}
     results = [run_test(features, h) for h in hyps.values()]
     finalize(results, hyps)
+    tier = tiers(conn)
+    for r in results:  # E2: no insight rests on poor-quality measures alone
+        h = hyps[r.hypothesis_id]
+        if r.status == "supported" and (problem := insight_problem(h.exposure, h.outcome, tier)):
+            r.status, r.summary = "weak", f"{r.summary} - {problem}"
     for r in results:
         insert(conn, "analytics.insight", {
             "hypothesis_id": r.hypothesis_id,

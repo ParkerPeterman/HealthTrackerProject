@@ -413,7 +413,7 @@ const JOURNAL_FIELDS: { key: keyof Journal; name: string; hint: string }[] = [
   { key: "mood", name: "Mood", hint: "1 low · 5 great" },
   { key: "soreness", name: "Soreness", hint: "1 none · 5 very" },
   { key: "stress", name: "Stress", hint: "1 calm · 5 high" },
-  { key: "motivation", name: "Motivation", hint: "1 none · 5 fired up" },
+  { key: "sleep_quality", name: "Sleep quality", hint: "1 awful · 5 great" },
 ];
 
 function DoneRow({ text, action, onClick }: { text: string; action: string; onClick: () => void }) {
