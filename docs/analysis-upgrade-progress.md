@@ -52,15 +52,15 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | S13 eval | `healthtracker evaluate` (`sample/evaluate.py`), runtime rows and budgets (`pipeline/runner.py`), weekly shadow log (`stats/shadow_log.py`, Coach history card); G2 empty-series fix | 045 |
 | H3 fix | no missed-dose finding from fewer than 8 missed days (found by the evaluation) | 046 |
 | F2/B6 tweaks | `stats/tweaks.py`: groin-tweak Bayesian logistic screen (Laplace, strong priors), exploratory, `/api/tweak-screen` | 047 |
+| F1 taper | in-season/pre-season week before a tournament (2+ games a day or back-to-back days): no hard session in the 3 days before, the rest x0.7, no lengthening (`taper_factor`, `taper_days`) | 048 |
 | Docs | README (parts, roadmap, CLI, privacy), design notes (fair grading, B1-B6, the plan, shadow first, medication apart, forecasts and change points, evaluation), `docs/evaluation.md` | – |
 
 ## Next, in order
 
 Everything in the brief's "Next" list is built. What remains is gated on data or the season:
 
-1. **In-season tapering before tournaments** (F1 table): a lighter week and no hard sessions in the
-   three days before a multi-game day.
-2. **D2 with fitted time constants** once 4-6 months of runs exist (a tau grid by evidence, like B4).
+1. ~~In-season tapering before tournaments~~ (done, 048).
+2. **D2 with fitted time constants** (next; not started) once 4-6 months of runs exist (a tau grid by evidence, like B4).
 3. **G1 v2** (about 90 days): learned readiness weights trained on next-session outcomes; must beat
    v1 on held-out days before it replaces it.
 4. **C4's interaction definition**: "hard day" (load z >= 1) is too strict to ever confirm the
