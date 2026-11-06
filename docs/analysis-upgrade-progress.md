@@ -57,11 +57,14 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | G1 v2 | `features/readiness_v2.py`: session-day outcome = mean of effort vs plan (or my usual RPE for the type), pace at ref HR vs D3's level, and feel; NIG weights with priors at v1's, never negative (active set); weekly `analytics.readiness_model` (also each backfill Sunday); each day scored by the model fitted before it (`readiness_daily.score_v1`, `v2`); replaces v1 only if the rolling backtest is 2% better with P >= 0.95 paired by day and `COMP_READINESS_V2` (shadow) is live; shadow log `readiness_v2`; `stats/compare.py` shared with D2; demo plant: run feel tracks sleep and HRV; evaluation row | 050 |
 | C4 hard day | the interaction's hard day is a game or RPE >= 7 (`days_since_hard == 0`, the app's own `hard_rpe_threshold`) or load z >= 1; load z alone saw 10 hard days in 120 demo days and never 4 after a short night; now 52 and 7, -3.1 ms (P 0.77) | – |
 | S14 schedule | `components.SCHEDULE` (the brief's phasing per switch: a phase start, or base start + 22 days for "about Dec 1", or on evidence for B1 and G1 v2), `components.schedule()`, `healthtracker components` (status, planned date against my season or the default calendar, data gate, latest shadow-log line, DUE); switches nothing | – |
+| S13 calibration | simulation tests: G1 v2 weight intervals hold the truth ~80%; D2's one-run-ahead intervals are conservative (~89%) | – |
+| S13 rating share | `/api/insights/week` returns `ratings` (new of rated, target 0.5); the Coach card shows it | – |
+| Evaluation refresh | `docs/evaluation.md` rerun after D2 taus, G1 v2, C4; the report's G1 v2 cell no longer crashes on short demos | – |
 | Docs | README (parts, roadmap, CLI, privacy), design notes (fair grading, B1-B6, the plan, shadow first, medication apart, forecasts and change points, evaluation), `docs/evaluation.md` | – |
 
 ## Next, in order
 
-Everything in the brief's "Next" list is built. What remains is gated on data or the season:
+Every item in the brief is built. What remains is gated on data, the season, or the owner:
 
 1. ~~In-season tapering before tournaments~~ (done, 048).
 2. ~~D2 with fitted time constants~~ (done, 049; the gate opens by itself at about 5 months of runs).
@@ -70,6 +73,11 @@ Everything in the brief's "Next" list is built. What remains is gated on data or
 5. Switch shadow components on by the phasing table (A2 bands and E3 about Dec 1; C1-C4, G1 v1,
    F4 on Jan 4; F7, D5, G3 on Feb 8; G2 in spring), each after a look at the shadow log.
    `healthtracker components` (or the Coach rules list) shows what is due.
+
+Owner-only, not started on purpose:
+- **Push notifications** need an outbound push service (ask before adding one).
+- **Linking dose changes to G3 shifts** in the app needs a ninth approved medication wording.
+- **The first regular-season game** date (Settings > Season) moves the pre-season and in-season switch dates.
 
 ## Judgment calls to raise with the owner
 
