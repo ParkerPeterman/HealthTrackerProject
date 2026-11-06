@@ -42,9 +42,11 @@ Budgets: nightly about 2 minutes, weekly about 10 (brief section 13).
 - **B4 doesn't settle the shape of the game effect** in 120 days. It marks it unclear (the best
   decay holds under half the evidence weight) rather than claiming one. The demo's HRV also
   carries day-to-day persistence (AR 0.75), which smears a two-morning effect.
-- **C4's interaction never gets its 4 qualifying days.** Its "hard day" (load z of 1 or more)
-  is stricter than the planted one (any game or tempo run). Either the definition or the
-  minimum needs a look before it can confirm anything.
+- **C4's interaction never got its 4 qualifying days** while its "hard day" meant load z of 1
+  or more, stricter than the planted one (any game or tempo run). A hard day is now a game or a
+  session at RPE 7 or more (the app's own definition) or a big load day. Rechecked by hand on the
+  120-day demo: 7 qualifying days, -3.1 ms beyond the two added up (P 0.77, "possibly"; planted
+  about -6 ms, diluted by heavy lifts that also count as hard).
 - **D3 needs weather to see fitness through the heat.** With the synthetic weather, its
   temperature coefficient is positive from 60 days and the fitness trend is clear. Without
   weather, the planted heat effect hid the trend, because spring warming correlates with the

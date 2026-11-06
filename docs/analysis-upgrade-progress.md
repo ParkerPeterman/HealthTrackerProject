@@ -55,6 +55,7 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | F1 taper | in-season/pre-season week before a tournament (2+ games a day or back-to-back days): no hard session in the 3 days before, the rest x0.7, no lengthening (`taper_factor`, `taper_days`) | 048 |
 | D2 fitted taus | past `ANALYSIS_D2.fit_taus_days` (150) and `fit_taus_runs` (40): a 6 x 5 grid of time constants by evidence + log-normal priors (42/7); adopted only if the re-picking backtest is >= 5% better and P >= 0.95 paired; `tau_source`, `tau_fit` verdict; G2 uses D2's constants; numpy fit path (same result as `design()`, about 100x faster) | 049 |
 | G1 v2 | `features/readiness_v2.py`: session-day outcome = mean of effort vs plan (or my usual RPE for the type), pace at ref HR vs D3's level, and feel; NIG weights with priors at v1's, never negative (active set); weekly `analytics.readiness_model` (also each backfill Sunday); each day scored by the model fitted before it (`readiness_daily.score_v1`, `v2`); replaces v1 only if the rolling backtest is 2% better with P >= 0.95 paired by day and `COMP_READINESS_V2` (shadow) is live; shadow log `readiness_v2`; `stats/compare.py` shared with D2; demo plant: run feel tracks sleep and HRV; evaluation row | 050 |
+| C4 hard day | the interaction's hard day is a game or RPE >= 7 (`days_since_hard == 0`, the app's own `hard_rpe_threshold`) or load z >= 1; load z alone saw 10 hard days in 120 demo days and never 4 after a short night; now 52 and 7, -3.1 ms (P 0.77) | – |
 | Docs | README (parts, roadmap, CLI, privacy), design notes (fair grading, B1-B6, the plan, shadow first, medication apart, forecasts and change points, evaluation), `docs/evaluation.md` | – |
 
 ## Next, in order
@@ -64,8 +65,7 @@ Everything in the brief's "Next" list is built. What remains is gated on data or
 1. ~~In-season tapering before tournaments~~ (done, 048).
 2. ~~D2 with fitted time constants~~ (done, 049; the gate opens by itself at about 5 months of runs).
 3. ~~G1 v2~~ (done, 050; adopts by itself once it predicts sessions clearly better, shown once `COMP_READINESS_V2` is on).
-4. **C4's interaction definition** (next): "hard day" (load z >= 1) is too strict to ever confirm the
-   planted interaction in 120 demo days (see docs/evaluation.md).
+4. ~~C4's interaction definition~~ (done: hard sessions by RPE/game or a big load day).
 5. Switch shadow components on by the phasing table (A2 bands and E3 about Dec 1; C1-C4, G1 v1,
    F4 on Jan 4; F7, D5, G3 on Feb 8; G2 in spring), each after a look at the shadow log.
 

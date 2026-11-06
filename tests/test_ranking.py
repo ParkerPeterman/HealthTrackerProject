@@ -60,6 +60,24 @@ def test_threshold_interaction_and_timing_are_found():
     assert tm["last_caffeine_hour"]["estimate"] == pytest.approx(15, abs=6)  # 0.25 h = 15 min per hour
 
 
+def test_interaction_counts_hard_sessions_at_ordinary_load():
+    """A game or tempo run is a hard day even when the day's load isn't unusual (C4, evaluation)."""
+    rng = np.random.default_rng(7)
+    n = 150
+    idx = pd.date_range("2026-03-01", periods=n, freq="D")
+    sleep = rng.normal(440, 35, n)
+    hard_session = rng.random(n) < 0.3
+    load_z = np.clip(rng.normal(0, 0.5, n), None, 0.9)  # never a big load day
+    hrv = 60 + rng.normal(0, 3, n)
+    hrv[1:] -= 6 * (hard_session & (sleep < 420))[:-1]
+    days_since = np.where(hard_session, 0, 1)
+    f = pd.DataFrame({"sleep_total_min": sleep, "hrv": hrv, "load_z_28d": load_z, "days_since_hard": days_since,
+                      "is_sick": False, "is_travel": False, "injury_active": False, "sleep_plausible": True}, index=idx)
+    i = it.interaction(f)
+    assert i and i["estimate"] < -2 and i["p"] > 0.6
+    assert it.interaction(f.drop(columns="days_since_hard")) is None  # load z alone sees no hard day
+
+
 def test_no_threshold_in_noise():
     f = daily()
     f["hrv"] = 60 + np.random.default_rng(1).normal(0, 4, len(f))

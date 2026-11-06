@@ -91,10 +91,20 @@ def timing(f: pd.DataFrame) -> list[dict]:
     return out
 
 
+def hard_days(f: pd.DataFrame) -> pd.Series:
+    """A hard day: a game or a session at RPE 7 or more (the app's own definition, TRAIN_POST_GAME
+    hard_rpe_threshold, through days_since_hard), or an unusually big load day (z >= 1). Load z
+    alone missed most hard sessions: a tempo run or a game is often an ordinary-load day."""
+    big = f["load_z_28d"].astype(float) >= 1.0
+    if "days_since_hard" in f:
+        return (big | (f["days_since_hard"].astype(float) == 0)).astype(float)
+    return big.astype(float)
+
+
 def interaction(f: pd.DataFrame) -> dict | None:
     """Does a hard day cost more next-morning HRV after a short night?"""
     f = f.sort_index().reindex(pd.date_range(f.index.min(), f.index.max(), freq="D"))
-    hard = (f["load_z_28d"].astype(float) >= 1.0).astype(float)
+    hard = hard_days(f)
     short = (f["sleep_total_min"].astype(float) < 420).astype(float)
     df = pd.DataFrame({"Y": f["hrv"].astype(float).shift(-1), "hard": hard, "short": short,
                        "both": hard * short})
