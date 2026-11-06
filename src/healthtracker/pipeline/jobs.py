@@ -350,7 +350,11 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                     run_insights(conn, d)
                     run_ranking(conn, d)
                     _med_analysis(conn, d)
-                    _readiness_model(conn, d)  # G1 v2: each past day is scored by the model fitted before it
+                    try:  # G1 v2 (shadow): each past day is scored by the model fitted before it
+                        with conn.transaction():
+                            _readiness_model(conn, d)
+                    except Exception:  # noqa: BLE001
+                        log.exception("readiness model failed for %s; backfill continues", d)
                     run_tuning(conn, d)
                     _advice_grading(conn, d)
                     run_promotion(conn, d)
