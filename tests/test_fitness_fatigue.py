@@ -136,3 +136,16 @@ def test_demo_fitted_taus_with_the_gate_lowered(seeded, tx):
     assert (float(row["tau_fitness"]), float(row["tau_fatigue"])) == used
     plan = _plan_row(tx, seeded["end"])
     assert plan is not None and plan["model"] == "fitness_fatigue"
+
+
+@pytest.mark.db
+def test_fixed_constants_still_written_when_fitting_fails(seeded, tx, monkeypatch):
+    from healthtracker.db import fetch_one
+
+    def boom(*_a, **_k):
+        raise RuntimeError("grid broke")
+
+    monkeypatch.setattr(ff, "choose_taus", boom)
+    assert ff.build_fitness_fatigue(tx, seeded["end"]) == 1
+    row = fetch_one(tx, "SELECT * FROM analytics.fitness_fatigue WHERE computed_on = %s", (seeded["end"],))
+    assert row["tau_source"] == "fixed" and row["tau_fit"]["reason"] == "fitting failed"

@@ -30,6 +30,7 @@ run's value) before any forecast is shown.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 
 import numpy as np
@@ -245,8 +246,12 @@ def build_fitness_fatigue(conn: psycopg.Connection, as_of: date) -> int:
         return 0
     bt = backtest(pace, load_s)
     p = _params(conn)
-    sel, tau_fit = choose_taus(pace, load_s, bt, p.get("fit_taus_days", FIT_TAUS_DAYS),
-                               p.get("fit_taus_runs", FIT_TAUS_RUNS))
+    try:  # fitted constants are optional: if they fail, 42/7 still give a row
+        sel, tau_fit = choose_taus(pace, load_s, bt, p.get("fit_taus_days", FIT_TAUS_DAYS),
+                                   p.get("fit_taus_runs", FIT_TAUS_RUNS))
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("fitting D2 time constants failed; keeping 42/7")
+        sel, tau_fit = None, {"used": False, "reason": "fitting failed"}
     taus = FIXED
     if sel is not None:
         model, bt, taus = sel["model"], sel["backtest"], sel["best"]

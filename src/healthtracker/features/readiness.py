@@ -25,6 +25,7 @@ needs at least three.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 
 import numpy as np
@@ -167,8 +168,13 @@ def build_readiness(conn: psycopg.Connection, end: date, days: int = 120) -> int
     if comp.empty:
         return 0
     sc = scores(comp, p)
-    v2 = v2_scores(comp, models_before(conn, end), p)
-    v2_live = is_live(component_status(conn), "COMP_READINESS_V2")
+    try:  # v2 is a shadow part: if it fails, v1 is still written
+        with conn.transaction():
+            v2 = v2_scores(comp, models_before(conn, end), p)
+            v2_live = is_live(component_status(conn), "COMP_READINESS_V2")
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("readiness v2 scoring failed; v1 only")
+        v2, v2_live = pd.DataFrame(), False
     rows = []
     for ts in comp.index[comp.index >= pd.Timestamp(end - timedelta(days=days))]:
         s = sc.loc[ts]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from datetime import date, timedelta
 from datetime import date as Date
@@ -197,7 +198,12 @@ def rules(conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     params = fetch_all(conn, "SELECT * FROM analytics.rule_parameter ORDER BY rule_id, name")
     from healthtracker.components import schedule
 
-    sched = {s["code"]: s for s in schedule(conn, local_date(conn))}  # section 14: when each shadow part is due
+    try:  # section 14: when each shadow part is due; never worth breaking the rules list over
+        with conn.transaction():
+            sched = {s["code"]: s for s in schedule(conn, local_date(conn))}
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("component schedule failed")
+        sched = {}
     for r in rows:
         r["parameters"] = [p for p in params if p["rule_id"] == r["rule_id"]]
         s = sched.get(r["rule_id"])

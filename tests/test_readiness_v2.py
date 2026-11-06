@@ -1,5 +1,7 @@
 """G1 v2: learned readiness weights, kept only when they predict held-out sessions clearly better."""
 
+from datetime import timedelta
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -186,3 +188,17 @@ def test_demo_v2_takes_over_only_when_adopted_and_live(seeded, tx):
                      (end - timedelta(days=30),))  # the days rebuilt
     assert rows and all(r["version"] == "v2" and r["score"] == r["v2"]["score"] for r in rows)
     assert all(r["score_v1"] is not None for r in rows)  # v1 kept alongside for the shadow log
+
+
+@pytest.mark.db
+def test_v1_is_written_when_v2_fails(seeded, tx, monkeypatch):
+    from healthtracker.db import fetch_all
+    from healthtracker.features import readiness
+
+    def boom(*_a, **_k):
+        raise RuntimeError("v2 broke")
+
+    monkeypatch.setattr(readiness, "v2_scores", boom)
+    assert readiness.build_readiness(tx, seeded["end"], days=14) > 0
+    rows = fetch_all(tx, "SELECT * FROM analytics.readiness_daily WHERE date > %s", (seeded["end"] - timedelta(days=14),))
+    assert rows and all(r["version"] == "v1" and r["v2"] is None and r["score"] == r["score_v1"] for r in rows)

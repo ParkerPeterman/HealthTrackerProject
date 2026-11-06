@@ -56,3 +56,20 @@ def test_rules_api_carries_the_schedule(seeded, db_url):
     assert rows["COMP_HRV_BANDS"]["schedule"]["note"].startswith("A2")
     assert rows["COMP_READINESS_V2"]["schedule"]["planned_on"] is None
     assert rows["SLEEP_SHORT"]["schedule"] is None  # ordinary rules aren't scheduled
+
+
+@pytest.mark.db
+def test_rules_api_survives_a_schedule_failure(seeded, db_url, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import healthtracker.components as comp
+    from healthtracker.api.main import app
+    from healthtracker.db import use_database
+
+    def boom(*_a, **_k):
+        raise RuntimeError("schedule broke")
+
+    monkeypatch.setattr(comp, "schedule", boom)
+    use_database(db_url)
+    res = TestClient(app).get("/api/rules")
+    assert res.status_code == 200 and all(r["schedule"] is None for r in res.json())
