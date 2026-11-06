@@ -168,11 +168,22 @@ def forecast_series(metric: str, s: pd.Series, end: date) -> dict | None:
 
 
 # ------------------------------------------------------------------ D2 under the plan
-def plan_forecast(pace: pd.Series, load: pd.Series, weekly_load: float, test: int = 28) -> dict | None:
-    """D2's pace at the reference HR in 8 weeks at the planned load, backtested at `test` days."""
-    from healthtracker.features.fitness_fatigue import MIN_RUNS, fit_model, forecast, frame, predict
+def plan_forecast(pace: pd.Series, load: pd.Series, weekly_load: float, test: int = 28,
+                  taus: tuple[float, float] | None = None) -> dict | None:
+    """D2's pace at the reference HR in 8 weeks at the planned load, backtested at `test` days.
+    `taus`: the time constants D2 uses (42/7 unless it adopted fitted ones, which it does only
+    after they beat 42/7 in its own backtest that re-picks them at each origin)."""
+    from healthtracker.features.fitness_fatigue import (
+        FIXED,
+        MIN_RUNS,
+        fit_model,
+        forecast,
+        frame,
+        predict,
+    )
 
-    df = frame(pace, load)
+    taus = taus or FIXED
+    df = frame(pace, load, *taus)
     if len(df) < MIN_RUNS:
         return None
     model = fit_model(df)
@@ -198,7 +209,7 @@ def plan_forecast(pace: pd.Series, load: pd.Series, weekly_load: float, test: in
         errs.append(abs(mean - row["Y"]))
         base.append(abs(df["Y"].iloc[k - 1] - row["Y"]))
         inside.append(mean - Z80 * sd <= row["Y"] <= mean + Z80 * sd)
-    f = forecast(model, load, weekly_load)
+    f = forecast(model, load, weekly_load, taus=taus)
     end = load.index.max().date()
     return {"metric": "aerobic_pace", "model": "fitness_fatigue", "n_obs": len(df), "last_date": df.index.max().date(),
             "last_value": round(float(df["Y"].iloc[-1]), 3), "horizon_days": 7 * f["weeks"], "test_horizon_days": test,
@@ -296,4 +307,7 @@ def _plan_row(conn: psycopg.Connection, as_of: date) -> dict | None:
                               ORDER BY week_start DESC LIMIT 1""", (as_of + timedelta(days=7),))
     weekly = ((plan or {}).get("summary") or {}).get("planned_load")
     weekly = float(weekly) if weekly else float(load_s.iloc[-28:].sum() / 4)
-    return plan_forecast(_series(runs, "adjusted"), load_s, weekly)
+    ff = fetch_one(conn, """SELECT tau_fitness, tau_fatigue FROM analytics.fitness_fatigue WHERE computed_on <= %s
+                            ORDER BY computed_on DESC LIMIT 1""", (as_of,))  # D2 runs first in the weekly job
+    taus = (float(ff["tau_fitness"]), float(ff["tau_fatigue"])) if ff else None
+    return plan_forecast(_series(runs, "adjusted"), load_s, weekly, taus=taus)

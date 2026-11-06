@@ -53,6 +53,7 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | H3 fix | no missed-dose finding from fewer than 8 missed days (found by the evaluation) | 046 |
 | F2/B6 tweaks | `stats/tweaks.py`: groin-tweak Bayesian logistic screen (Laplace, strong priors), exploratory, `/api/tweak-screen` | 047 |
 | F1 taper | in-season/pre-season week before a tournament (2+ games a day or back-to-back days): no hard session in the 3 days before, the rest x0.7, no lengthening (`taper_factor`, `taper_days`) | 048 |
+| D2 fitted taus | past `ANALYSIS_D2.fit_taus_days` (150) and `fit_taus_runs` (40): a 6 x 5 grid of time constants by evidence + log-normal priors (42/7); adopted only if the re-picking backtest is >= 5% better and P >= 0.95 paired; `tau_source`, `tau_fit` verdict; G2 uses D2's constants; numpy fit path (same result as `design()`, about 100x faster) | 049 |
 | Docs | README (parts, roadmap, CLI, privacy), design notes (fair grading, B1-B6, the plan, shadow first, medication apart, forecasts and change points, evaluation), `docs/evaluation.md` | – |
 
 ## Next, in order
@@ -60,8 +61,8 @@ never go into code, migrations, tests, or commits; they live only in the databas
 Everything in the brief's "Next" list is built. What remains is gated on data or the season:
 
 1. ~~In-season tapering before tournaments~~ (done, 048).
-2. **D2 with fitted time constants** (next; not started) once 4-6 months of runs exist (a tau grid by evidence, like B4).
-3. **G1 v2** (about 90 days): learned readiness weights trained on next-session outcomes; must beat
+2. ~~D2 with fitted time constants~~ (done, 049; the gate opens by itself at about 5 months of runs).
+3. **G1 v2** (next) (about 90 days): learned readiness weights trained on next-session outcomes; must beat
    v1 on held-out days before it replaces it.
 4. **C4's interaction definition**: "hard day" (load z >= 1) is too strict to ever confirm the
    planted interaction in 120 demo days (see docs/evaluation.md).
@@ -83,6 +84,7 @@ Everything in the brief's "Next" list is built. What remains is gated on data or
 - **G4/G5/B4** are in shadow with the ranking. G5 changed rule promotion itself (matched instead of raw comparison; the proposals still need approval).
 - **H3 minimum of 8 missed days** for a missed-dose finding: stricter than before (it only gated the travel template). Wording unchanged.
 - **Tests now set HOME_LAT/HOME_LON** to the demo's synthetic home point so demo sessions get the synthetic weather (needed once the heat effect was planted).
+- **D2 fitted time constants need a clear win.** "Any lower backtest error" swapped 42/7 for another pair in 58-70% of simulated histories whose true constants were 42/7, so the rule is a 5% lower error *and* P >= 0.95 paired run by run (8-15% false swaps; 60/3 found in 80% of histories at 150 days and all at 240; low power when the truth is close, e.g. 35/10 or 28/14, where the backtest errors differ by about 1%). The fitness constant is poorly identified (the Banister literature says the same); the fatigue constant lands within a grid step. On the 90-day demo with the gate lowered the evidence is flat (best 42/7 at 9% weight) and nothing is adopted; the demo plants no time constants.
 - **G3 reports shifts about three weeks late** (it waits 20 measurements to be sure). Dose-change links are stored in the sensitive table but shown nowhere: showing them needs a new approved wording (a ninth template), which is the owner's call.
 
 ## Decisions already made by the owner

@@ -195,6 +195,17 @@ backtested from rolling origins against a naive forecast (the last value; for we
 week's mean) and is shown only once it beats naive. Goal arrival dates are ranges (most likely,
 earliest, latest at 80%), or "not within a year".
 
+The fitness-fatigue model (D2, `features/fitness_fatigue.py`) starts with time constants of 42
+and 7 days. Once runs span about five months (`ANALYSIS_D2.fit_taus_days`, `fit_taus_runs`), it
+scores a grid of pairs (fitness 21-60 days, fatigue 3-14) by model evidence plus log-normal
+priors centred on 42 and 7. It keeps the best pair only when that pair forecasts clearly better
+in a backtest that re-picks the pair from the runs before each origin: a mean error at least 5%
+lower, and P >= 0.95 run by run. In simulation, "any lower error" swapped the constants in most
+histories whose true constants were 42/7. This rule did it in 8-15%, and still found constants
+far from 42/7 (60/3) in 4 of 5 at the gate. The fatigue constant comes out within a grid step. The
+fitness constant often doesn't, a known weakness of the Banister model, so the model compares
+plans and is never ground truth.
+
 Change points (G3, `stats/changepoint.py`) are Bayesian online change-point detection. The daily
 series are prewhitened with their own AR(1) first: on autocorrelated noise without prewhitening,
 it found 19 to 84 false shifts per 40 series. A shift is reported about three weeks after it
