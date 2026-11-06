@@ -4,7 +4,12 @@ from datetime import date
 
 import pytest
 
-from healthtracker.planning.season import default_first_game, default_phases, monday_on_or_after, phase_on
+from healthtracker.planning.season import (
+    default_first_game,
+    default_phases,
+    monday_on_or_after,
+    phase_on,
+)
 
 
 def test_defaults_match_the_brief():
