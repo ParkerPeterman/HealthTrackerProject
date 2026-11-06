@@ -3,7 +3,8 @@
 Brief section 13. `healthtracker evaluate` builds a synthetic athlete of each length (same seed
 and end date) in a scratch database, runs the full backfill plus one nightly and one weekly run,
 and reads every method back against what the generator planted. Nothing here is real data. The
-run below was on 2026-11-05, on the 8-core / 6 GB dev machine.
+run below was on 2026-11-05 (after D2's fitted time constants, G1 v2, and the C4 change), on the
+8-core / 6 GB dev machine.
 
 P = P(|effect| > SWC); a planted effect should rise and keep its sign, the others stay low.
 
@@ -21,14 +22,15 @@ P = P(|effect| > SWC); a planted effect should rise and keep its sign, the other
 | low carbs -> energy | too early | too early | too early | too early |
 | under 2000 kcal -> energy | too early | too early | too early | too early |
 | B4 game -> HRV lags | – | tau 0.5 (unclear): -3.1, -0.4 | tau 0 (unclear): -2.1 | tau 4 (unclear): -4.5, -3.5, -2.8, -2.1 |
-| C4 hard day after short night | too few days | too few days | too few days | too few days |
+| C4 hard day after short night | too few days | too few days | too few days | -3.1 ms (P 0.77) |
 | D3 pace trend, s/km a week | – | – | -2.11 (hi80 -1.87) | -0.97 (hi80 -0.82) |
 | D3 temp / humid, s/km per °C | – | – | +0.27 / +0.17 | +0.20 / +0.20 |
 | G2 beats naive | none | none | weight_kg | aerobic_pace (D2), vo2max |
 | G3 shifts | none | none | weight_kg Jun 06 -0.5 | weight_kg Apr 12 -1.2; aerobic_pace May 18 -9.0; resting_hr May 21 -1.7; sleep_midpoint May 27 +43.8 |
 | G4 unusual days (explained) | 0 (0) | 14 (12) | 14 (13) | 34 (24) |
+| G1 v2 vs v1 (MAE, P better) | too few sessions | too few sessions | no held-out days yet; top resting_hr x3.33, sleep x1.24 | 0.53 vs 0.53, P 0.58; top sleep x3.8, resting_hr x1.39 |
 | H3 medication (max P) | 11 estimates, max P 0.00 | 11 estimates, max P 0.43 | 11 estimates, max P 0.81 | 11 estimates, max P 0.82 |
-| runtime: backfill / nightly / weekly | 3 s / 3 s / 2 s | 15 s / 9 s / 8 s | 39 s / 12 s / 10 s | 97 s / 18 s / 15 s |
+| runtime: backfill / nightly / weekly | 3 s / 3 s / 2 s | 14 s / 9 s / 7 s | 37 s / 11 s / 9 s | 89 s / 15 s / 12 s |
 
 Budgets: nightly about 2 minutes, weekly about 10 (brief section 13).
 
@@ -44,9 +46,17 @@ Budgets: nightly about 2 minutes, weekly about 10 (brief section 13).
   carries day-to-day persistence (AR 0.75), which smears a two-morning effect.
 - **C4's interaction never got its 4 qualifying days** while its "hard day" meant load z of 1
   or more, stricter than the planted one (any game or tempo run). A hard day is now a game or a
-  session at RPE 7 or more (the app's own definition) or a big load day. Rechecked by hand on the
-  120-day demo: 7 qualifying days, -3.1 ms beyond the two added up (P 0.77, "possibly"; planted
-  about -6 ms, diluted by heavy lifts that also count as hard).
+  session at RPE 7 or more (the app's own definition) or a big load day. At 120 days: 7
+  qualifying days, -3.1 ms beyond the two added up (P 0.77, "possibly"; planted about -6 ms,
+  diluted by heavy lifts that also count as hard).
+- **G1 v2 learns the planted direction but doesn't replace v1.** The demo plants session feel
+  on sleep and HRV; v2 puts the most weight on sleep by 120 days and drops components that
+  would need a negative weight. It predicts held-out sessions no better than v1 (MAE 0.53 vs
+  0.53), so v1 stays. The plant is in one of three outcome parts, and readiness predicts single
+  sessions only weakly, so this is the expected result at four months.
+- **D2's fitted time constants don't come into play here.** Their gate is about five months of
+  runs (150 days), past the longest demo; with the gate lowered on 90 days the evidence over the
+  grid is flat and 42/7 stay.
 - **D3 needs weather to see fitness through the heat.** With the synthetic weather, its
   temperature coefficient is positive from 60 days and the fitness trend is clear. Without
   weather, the planted heat effect hid the trend, because spring warming correlates with the

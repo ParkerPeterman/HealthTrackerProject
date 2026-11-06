@@ -155,8 +155,10 @@ def collect(conn, out: Result) -> None:
     rm = fetch_one(conn, "SELECT * FROM analytics.readiness_model ORDER BY computed_on DESC LIMIT 1")
     if rm:
         top = sorted(rm["weights"].items(), key=lambda kv: -kv[1]["beta"])[:2]
-        out.readiness = {"n": rm["n_sessions"], "adopted": rm["adopted"], "gate": rm["gate"]["open"], **rm["backtest"],
-                         "top": [(c, w["relative"]) for c, w in top]}
+        bt = rm["backtest"]
+        out.readiness = {"sessions": rm["n_sessions"], "adopted": rm["adopted"], "gate": rm["gate"]["open"],
+                         "backtest_n": bt["n"], "mae_v1": bt["mae_v1"], "mae_v2": bt["mae_v2"],
+                         "p_better": bt["p_better"], "top": [(c, w["relative"]) for c, w in top]}
 
 
 def _effect(r: dict | None, sign: int | None) -> dict:
@@ -168,6 +170,17 @@ def _effect(r: dict | None, sign: int | None) -> dict:
 
 
 # ------------------------------------------------------------------ the report
+def _readiness_cell(r: Result) -> str:
+    g = r.readiness
+    if not g:
+        return "too few sessions"
+    top = ", ".join(f"{c} x{w:g}" for c, w in g["top"] if w)
+    if g.get("mae_v2") is None or g.get("mae_v1") is None:
+        return f"no held-out days yet; top {top or 'none'}"
+    state = ", adopted" if g["adopted"] else "" if g["gate"] else " (gate shut)"
+    return f"{g['mae_v2']:.2f} vs {g['mae_v1']:.2f}, P {g['p_better']:.2f}{state}; top {top or 'none'}"
+
+
 def render(results: list[Result]) -> str:
     days = [r.days for r in results]
     head = "| | " + " | ".join(f"{d} days" for d in days) + " |"
@@ -204,10 +217,7 @@ def render(results: list[Result]) -> str:
     row("G3 shifts", lambda r: "; ".join(f"{c['metric']} {c['date']:%b %d} {c['shift']:+.1f}" for c in r.change_points)
         or "none")
     row("G4 unusual days (explained)", lambda r: f"{r.anomalies.get('n', 0)} ({r.anomalies.get('explained', 0)})")
-    row("G1 v2 vs v1 (MAE, P better)", lambda r: "too few sessions" if not r.readiness else
-        f"{r.readiness['mae_v2']:.2f} vs {r.readiness['mae_v1']:.2f}, P {r.readiness['p_better']:.2f}"
-        f"{', adopted' if r.readiness['adopted'] else '' if r.readiness['gate'] else ' (gate shut)'}; top "
-        + ", ".join(f"{c} x{w if w is not None else '?'}" for c, w in r.readiness["top"]))
+    row("G1 v2 vs v1 (MAE, P better)", _readiness_cell)
     row("H3 medication (max P)", lambda r: "none" if not r.medication.get("n") else
         f"{r.medication['n']} estimates, max P {float(r.medication['max_p'] or 0):.2f}")
     row("runtime: backfill / nightly / weekly", lambda r: f"{r.runtime.get('backfill_s')} s / "
