@@ -23,6 +23,9 @@ Section 13 additions, each deterministic or on its own random stream so nothing 
     get that weather only when a home location is set (HOME_LAT / HOME_LON)
   * groin tweaks: occasional one-tap events, five times as likely the day after a game or
     tempo run (F2, the Copenhagen level)
+  * session feel: a run feels a step better after 7 h 50 min of sleep or more, a step worse
+    after under 6 h 50 min, and a step worse again after a night with HRV 12% below normal
+    (G1 v2 learns weights from it); a shift of the same random draw as before
 """
 
 from __future__ import annotations
@@ -121,6 +124,7 @@ class Generator:
         self.end = end or datetime.now(TZ).date()
         self.start = self.end - timedelta(days=days - 1)
         self.days = days
+        self._night: tuple[float, float] = (450.0, 0.0)  # last night's sleep (min) and HRV vs normal
         self.food_ids: dict[str, int] = {}
         self.ex_ids: dict[str, int] = {}
         self.activity_id = 21_000_000_000
@@ -305,6 +309,7 @@ class Generator:
             last_total = total
 
             # ---------------- daytime
+            self._night = (total, hrv_mult / (1 + 0.05 * progress) - 1)  # for the G1 v2 feel plant
             sessions = []  # (start dt, minutes, avg hr, kind)
             for (h, mins, rpe) in p.game:
                 start = local(d, h)
@@ -554,7 +559,7 @@ class Generator:
         detail = {"activityId": act_id, "summaryDTO": {"duration": round(t, 1)}}
         if rng.random() < 0.8:  # sometimes RPE isn't entered on the watch
             detail["summaryDTO"]["directWorkoutRpe"] = rpe * 10
-            detail["summaryDTO"]["directWorkoutFeel"] = int(rng.choice([25, 50, 50, 75]))
+            detail["summaryDTO"]["directWorkoutFeel"] = self._feel(int(rng.choice([25, 50, 50, 75])))
         n = store_raw(self.conn, "garmin", "activity", p.d, act)
         n += store_raw(self.conn, "garmin", "activity_detail", p.d, detail)
         n += store_raw(self.conn, "garmin", "activity_splits", p.d, {"activityId": act_id, "lapDTOs": laps})
@@ -565,6 +570,12 @@ class Generator:
         n += store_raw(c, "garmin_fit", "fit_activity", start.astimezone(UTC).date(), fit)
         sessions.append((start, t / 60, avg_hr, "run"))
         return n
+
+    def _feel(self, drawn: int) -> int:
+        """G1 v2 plant: runs feel better after a long night, worse after a short one or low HRV."""
+        total, hrv_rel = self._night
+        step = (25 if total >= 470 else -25 if total < 410 else 0) - (25 if hrv_rel < -0.12 else 0)
+        return int(np.clip(drawn + step, 0, 100))
 
     def _lift(self, p: DayPlan, i: int, sessions: list, garmin: bool) -> int:
         rng, c = self.rng, self.conn

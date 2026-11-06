@@ -171,8 +171,26 @@ brief's phasing table:
 
 The weekly shadow log (`stats/shadow_log.py`, on the Coach history tab) shows where old and new
 logic disagreed: HRV z vs the band, the two illness checks, the daily adjustment on planned hard
-days, readiness vs the old flags, OLS vs B1, and raw vs fair grading. That is the evidence for
-switching something on; the log changes nothing itself.
+days, readiness vs the old flags, learned vs equal readiness weights, OLS vs B1, and raw vs fair
+grading. That is the evidence for switching something on; the log changes nothing itself.
+
+## Readiness: equal weights until learned ones earn it
+
+Readiness v1 (G1, `features/readiness.py`) weighs its components equally, the robust default
+with no published weighting. v2 (`features/readiness_v2.py`) learns the weights each week from
+how that day's sessions went: effort against the plan (or my usual RPE for the type), pace at
+the reference HR against D3's trend, and my rating. The priors sit at v1's weights, so with
+little data v2 stays close to v1. Each past day is scored by the model fitted before it, never
+after. v2 replaces v1 only when a rolling-origin backtest shows it predicting held-out sessions
+clearly better: a 2% lower mean error and P >= 0.95 paired by day. v1 is calibrated on the same
+training days, so the comparison is fair. In simulation it swapped in at most 7% of histories
+when nothing mattered or equal weights were right. When two components carried the signal it
+swapped in a sixth of histories at three months and about half at eight. Readiness predicts
+single sessions only weakly, so it takes months. No weight may be negative, because each
+component is signed so that higher means more ready: on the demo an unconstrained fit said
+soreness helped. Even an adopted v2 is shown only once `COMP_READINESS_V2` is on. The
+medication flag is not learned: it keeps v1's fixed weight relative to the learned ones, and
+flagged days are left out of the learning.
 
 ## Medication stays apart
 
@@ -182,7 +200,8 @@ Medication tables are sensitive (`COMMENT ... 'sensitive'`, listed in
 - **Messages:** every one comes from an approved template, filled by code and added after the
   LLM guard. The guard also rejects medication, painkiller, and extra-water wording in LLM text.
 - **Never a lever:** medication is never an experiment, never ranked as something to change,
-  and never an input to coaching rules (F4 ignores the readiness flag).
+  and never an input to coaching rules (F4 ignores the readiness flag). Readiness v2 doesn't
+  learn a weight for it either.
 - **Findings (H3):** a missed-dose finding needs at least 8 missed days behind it. The Section
   13 evaluation found a spurious "likely" from two.
 - **Shifts (G3):** a dose change near a shift is linked only in its own sensitive table, and is

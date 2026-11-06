@@ -40,6 +40,7 @@ from scipy.special import logsumexp
 
 from healthtracker.db import fetch_all, fetch_df, upsert
 from healthtracker.stats.bayes import VAGUE, fit
+from healthtracker.stats.compare import clearly_better, p_smaller
 
 TAU_FITNESS, TAU_FATIGUE = 42.0, 7.0
 PRIOR = ((-0.2, 0.5), (0.2, 0.5))  # fitness lowers pace, fatigue raises it (standardized), Banister et al. 1975
@@ -178,11 +179,8 @@ def p_better(bt: dict, other: dict) -> float:
     """One-sided P that `bt`'s errors are smaller than `other`'s, paired run by run (t test)."""
     a, b = dict(zip(bt.get("at", []), bt.get("errors", []), strict=True)), \
         dict(zip(other.get("at", []), other.get("errors", []), strict=True))
-    d = np.array([a[k] - b[k] for k in sorted(a.keys() & b.keys())])
-    if len(d) < 10 or d.std(ddof=1) == 0:
-        return 0.0
-    t = d.mean() / (d.std(ddof=1) / np.sqrt(len(d)))
-    return float(stats.t.cdf(-t, len(d) - 1))
+    common = sorted(a.keys() & b.keys())
+    return p_smaller([a[k] for k in common], [b[k] for k in common])
 
 
 def forecast(model: dict, load: pd.Series, weekly_load: float, weeks: int = 8,
@@ -214,8 +212,7 @@ def choose_taus(pace: pd.Series, load: pd.Series, fixed_bt: dict, need_days: flo
     bt = backtest(pace, load, fitted=True, frames=frames)
     top = sorted(sel["weights"].items(), key=lambda kv: -kv[1])[:5]
     p = p_better(bt, fixed_bt)
-    used = (bt["mae_model"] is not None and bool(fixed_bt["mae_model"])
-            and bt["mae_model"] <= (1 - ADOPT_MARGIN) * fixed_bt["mae_model"] and p >= ADOPT_P)
+    used = clearly_better(bt["mae_model"], fixed_bt["mae_model"], p, ADOPT_MARGIN, ADOPT_P)
     record |= {"best": {"fitness": sel["best"][0], "fatigue": sel["best"][1]},
                "best_weight": round(sel["weights"][sel["best"]], 3),
                "mean": {"fitness": round(sel["mean"][0], 1), "fatigue": round(sel["mean"][1], 1)},

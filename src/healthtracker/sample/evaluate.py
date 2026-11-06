@@ -62,6 +62,7 @@ class Result:
     change_points: list[dict] = field(default_factory=list)
     anomalies: dict = field(default_factory=dict)
     medication: dict = field(default_factory=dict)
+    readiness: dict | None = None
     runtime: dict = field(default_factory=dict)
 
 
@@ -151,6 +152,11 @@ def collect(conn, out: Result) -> None:
     med = fetch_one(conn, """SELECT count(*) AS n, max(p_meaningful) AS max_p FROM analytics.medication_effect
                              WHERE computed_on = (SELECT max(computed_on) FROM analytics.medication_effect)""")
     out.medication = dict(med or {})
+    rm = fetch_one(conn, "SELECT * FROM analytics.readiness_model ORDER BY computed_on DESC LIMIT 1")
+    if rm:
+        top = sorted(rm["weights"].items(), key=lambda kv: -kv[1]["beta"])[:2]
+        out.readiness = {"n": rm["n_sessions"], "adopted": rm["adopted"], "gate": rm["gate"]["open"], **rm["backtest"],
+                         "top": [(c, w["relative"]) for c, w in top]}
 
 
 def _effect(r: dict | None, sign: int | None) -> dict:
@@ -198,6 +204,10 @@ def render(results: list[Result]) -> str:
     row("G3 shifts", lambda r: "; ".join(f"{c['metric']} {c['date']:%b %d} {c['shift']:+.1f}" for c in r.change_points)
         or "none")
     row("G4 unusual days (explained)", lambda r: f"{r.anomalies.get('n', 0)} ({r.anomalies.get('explained', 0)})")
+    row("G1 v2 vs v1 (MAE, P better)", lambda r: "too few sessions" if not r.readiness else
+        f"{r.readiness['mae_v2']:.2f} vs {r.readiness['mae_v1']:.2f}, P {r.readiness['p_better']:.2f}"
+        f"{', adopted' if r.readiness['adopted'] else '' if r.readiness['gate'] else ' (gate shut)'}; top "
+        + ", ".join(f"{c} x{w if w is not None else '?'}" for c, w in r.readiness["top"]))
     row("H3 medication (max P)", lambda r: "none" if not r.medication.get("n") else
         f"{r.medication['n']} estimates, max P {float(r.medication['max_p'] or 0):.2f}")
     row("runtime: backfill / nightly / weekly", lambda r: f"{r.runtime.get('backfill_s')} s / "

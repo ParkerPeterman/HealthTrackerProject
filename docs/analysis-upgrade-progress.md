@@ -54,6 +54,7 @@ never go into code, migrations, tests, or commits; they live only in the databas
 | F2/B6 tweaks | `stats/tweaks.py`: groin-tweak Bayesian logistic screen (Laplace, strong priors), exploratory, `/api/tweak-screen` | 047 |
 | F1 taper | in-season/pre-season week before a tournament (2+ games a day or back-to-back days): no hard session in the 3 days before, the rest x0.7, no lengthening (`taper_factor`, `taper_days`) | 048 |
 | D2 fitted taus | past `ANALYSIS_D2.fit_taus_days` (150) and `fit_taus_runs` (40): a 6 x 5 grid of time constants by evidence + log-normal priors (42/7); adopted only if the re-picking backtest is >= 5% better and P >= 0.95 paired; `tau_source`, `tau_fit` verdict; G2 uses D2's constants; numpy fit path (same result as `design()`, about 100x faster) | 049 |
+| G1 v2 | `features/readiness_v2.py`: session-day outcome = mean of effort vs plan (or my usual RPE for the type), pace at ref HR vs D3's level, and feel; NIG weights with priors at v1's, never negative (active set); weekly `analytics.readiness_model` (also each backfill Sunday); each day scored by the model fitted before it (`readiness_daily.score_v1`, `v2`); replaces v1 only if the rolling backtest is 2% better with P >= 0.95 paired by day and `COMP_READINESS_V2` (shadow) is live; shadow log `readiness_v2`; `stats/compare.py` shared with D2; demo plant: run feel tracks sleep and HRV; evaluation row | 050 |
 | Docs | README (parts, roadmap, CLI, privacy), design notes (fair grading, B1-B6, the plan, shadow first, medication apart, forecasts and change points, evaluation), `docs/evaluation.md` | – |
 
 ## Next, in order
@@ -62,9 +63,8 @@ Everything in the brief's "Next" list is built. What remains is gated on data or
 
 1. ~~In-season tapering before tournaments~~ (done, 048).
 2. ~~D2 with fitted time constants~~ (done, 049; the gate opens by itself at about 5 months of runs).
-3. **G1 v2** (next) (about 90 days): learned readiness weights trained on next-session outcomes; must beat
-   v1 on held-out days before it replaces it.
-4. **C4's interaction definition**: "hard day" (load z >= 1) is too strict to ever confirm the
+3. ~~G1 v2~~ (done, 050; adopts by itself once it predicts sessions clearly better, shown once `COMP_READINESS_V2` is on).
+4. **C4's interaction definition** (next): "hard day" (load z >= 1) is too strict to ever confirm the
    planted interaction in 120 demo days (see docs/evaluation.md).
 5. Switch shadow components on by the phasing table (A2 bands and E3 about Dec 1; C1-C4, G1 v1,
    F4 on Jan 4; F7, D5, G3 on Feb 8; G2 in spring), each after a look at the shadow log.
@@ -85,6 +85,7 @@ Everything in the brief's "Next" list is built. What remains is gated on data or
 - **H3 minimum of 8 missed days** for a missed-dose finding: stricter than before (it only gated the travel template). Wording unchanged.
 - **Tests now set HOME_LAT/HOME_LON** to the demo's synthetic home point so demo sessions get the synthetic weather (needed once the heat effect was planted).
 - **D2 fitted time constants need a clear win.** "Any lower backtest error" swapped 42/7 for another pair in 58-70% of simulated histories whose true constants were 42/7, so the rule is a 5% lower error *and* P >= 0.95 paired run by run (8-15% false swaps; 60/3 found in 80% of histories at 150 days and all at 240; low power when the truth is close, e.g. 35/10 or 28/14, where the backtest errors differ by about 1%). The fitness constant is poorly identified (the Banister literature says the same); the fatigue constant lands within a grid step. On the 90-day demo with the gate lowered the evidence is flat (best 42/7 at 9% weight) and nothing is adopted; the demo plants no time constants.
+- **G1 v2 weights can't go negative.** On the 180-day demo an unconstrained fit gave soreness and sleep regularity negative weights (sore = more ready). Every component is signed so higher means more ready, so a negative weight is dropped and the rest refitted. The replacement rule is 2% lower MAE and P >= 0.95 paired by day: in simulation at most 7% false swaps (no signal, or equal weights right); a two-component signal is found in about a sixth of histories at 3 months and half at 8. On the demo (feel planted on sleep and HRV, diluted by effort and pace, which carry no plant) v2 learns energy 3.8x, sleep 1.9x, HRV 1.3x by 180 days, the rest dropped, but is not adopted (P 0.30): readiness predicts single sessions weakly. The medication flag keeps v1's fixed weight relative to the learned ones; flagged days are out of the learning. "The owner's rating" is read as Garmin feel on the session (the advice rating is about the message, not the session).
 - **G3 reports shifts about three weeks late** (it waits 20 measurements to be sure). Dose-change links are stored in the sensitive table but shown nowhere: showing them needs a new approved wording (a ninth template), which is the owner's call.
 
 ## Decisions already made by the owner

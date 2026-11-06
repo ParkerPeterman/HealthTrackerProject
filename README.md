@@ -44,7 +44,7 @@ flowchart TD
 | Part | What it is |
 |---|---|
 | `src/healthtracker/ingest`, `transform` | Garmin Connect pull (`garminconnect`), FIT fallback, raw -> core parsers, overlap merge (Garmin wins) |
-| `features` | `daily_features` (baselines over *eligible* days, HRV/RHR bands), session features, one internal load scale with sprint/jump/shoulder channels, aerobic fitness trend, sleep regularity, readiness (shadow), long-term trends and WHO minutes |
+| `features` | `daily_features` (baselines over *eligible* days, HRV/RHR bands), session features, one internal load scale with sprint/jump/shoulder channels, aerobic fitness trend, sleep regularity, readiness with weights learned from how sessions went (shadow), long-term trends and WHO minutes |
 | `rules` | Starter rules + experiment protocol; thresholds live in the DB so they can be tuned without code |
 | `recommend` | Recommendation, structured actions, next-day grading, fair (state-matched) grading of advice |
 | `llm` | Ollama client, two small calls (training, nutrition), output guard, template fallback |
@@ -227,7 +227,7 @@ docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d healthtracker
 | 2 Starter rules & coaching: recommendations, actions, grading, LLM phrasing | Built. Rules start in **shadow** mode; activate the fixed-target ones (protein, calories, post-game, short sleep) once a week of clean data exists |
 | 3 Baselines, lifts, injuries | Built. Baseline rules stay dormant until `min_history_days` (about 21 days) |
 | 4 Learning loop: weekly stats, insights, tuning with approval, self-experiments, shadow promotion | Built. First hypotheses need about 20 days per group |
-| 5 Readiness model, clustering, change points, RAG | Readiness v1, forecasts, and change points built in shadow (analysis upgrade, Nov 2026); learned readiness, clustering, RAG not started |
+| 5 Readiness model, clustering, change points, RAG | Readiness (v1, and v2 with learned weights), forecasts, and change points built in shadow (analysis upgrade, Nov 2026); clustering, RAG not started |
 | Analysis upgrade (brief of 2026-11-04) | Built on branch `analysis-upgrade`, one commit per item; shadow components switch on by the brief's phasing table. Demo evaluation: [docs/evaluation.md](docs/evaluation.md) |
 
 ## CLI

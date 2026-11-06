@@ -81,6 +81,16 @@ def readiness(conn, start: date, end: date) -> dict:
     return {"n_compared": len(scores), "disagree": diff}
 
 
+def readiness_v2(conn, start: date, end: date) -> dict:
+    """G1 v2 vs v1: days where one calls the day low and the other doesn't."""
+    rows = [r for r in fetch_all(conn, """SELECT date, score_v1, v2 FROM analytics.readiness_daily
+                                          WHERE date BETWEEN %s AND %s AND v2 IS NOT NULL ORDER BY date""",
+                                 (start, end)) if r["score_v1"] is not None]
+    diff = [{"date": r["date"], "v1": r["score_v1"], "v2": r["v2"]["score"], "adopted": r["v2"]["adopted"]}
+            for r in rows if (r["score_v1"] < LOW_READY) != (r["v2"]["score"] < LOW_READY)]
+    return {"n_compared": len(rows), "disagree": diff}
+
+
 def effects(conn, start: date, end: date) -> dict:
     from healthtracker.medication import is_sensitive
     from healthtracker.stats.hypothesis import parse_exposure
@@ -115,11 +125,12 @@ def promotion(conn, start: date, end: date) -> dict:
 
 
 COMPARISONS = {"hrv_status": hrv_status, "illness": illness, "daily_adjust": daily_adjust, "readiness": readiness,
-               "effects": effects, "promotion": promotion}
+               "readiness_v2": readiness_v2, "effects": effects, "promotion": promotion}
 WORDS = {"hrv_status": "days the HRV band and the old z-score disagreed",
          "illness": "days only one of the illness checks fired",
          "daily_adjust": "planned hard days the daily adjustment would have changed",
          "readiness": "days the readiness score and the old flags disagreed",
+         "readiness_v2": "days the learned readiness (v2) and v1 disagreed on a low day",
          "effects": "hypotheses where the Bayesian estimate and the old test disagree",
          "promotion": "rules whose raw and fair grades point different ways"}
 

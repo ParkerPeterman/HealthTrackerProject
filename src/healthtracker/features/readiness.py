@@ -14,8 +14,9 @@ more ready:
                lowers the score, and its reason never leaves the medication tables
 
 Weights start equal: with no published weighting, a unit-weighted composite is the robust
-default (Dawes 1979, "The robust beauty of improper linear models"). They are parameters,
-and v2 (about 90 days) will learn them and must beat v1 on held-out data first.
+default (Dawes 1979, "The robust beauty of improper linear models"). They are parameters.
+v2 (features/readiness_v2.py) learns them from how sessions went, is stored alongside, and
+replaces v1 only after predicting held-out sessions clearly better (and COMP_READINESS_V2).
 
 Score = 100 x Phi(composite / s), where s is the spread of my composites over the past 60
 days, so 50 is a typical day for me. Components missing that day are left out; the score
@@ -113,13 +114,16 @@ def drivers(row: pd.Series, p: dict, top: int = 3) -> list[dict]:
     return sorted(items, key=lambda x: -abs(x["z"] * x["weight"]))[:top]
 
 
-def build_readiness(conn: psycopg.Connection, end: date, days: int = 120) -> int:
+def load_components(conn: psycopg.Connection, end: date, days: int | None = 120) -> tuple[pd.DataFrame, dict]:
+    """Signed component z's per day up to `end` (the last `days` plus 90 days of run-in, or all
+    history), and the readiness parameters."""
     from healthtracker.stats.insights import load_features_frame
 
     f = load_features_frame(conn, end)
     if f.empty:
-        return 0
-    f = f[f.index >= pd.Timestamp(end - timedelta(days=days + 90))]
+        return pd.DataFrame(), readiness_params(conn)
+    if days is not None:
+        f = f[f.index >= pd.Timestamp(end - timedelta(days=days + 90))]
     status = fetch_df(conn, """SELECT date, metric, value, acute, base_center, base_scale FROM analytics.metric_status
                                WHERE metric IN ('ln_hrv', 'resting_hr') AND date >= %s""", (f.index.min().date(),))
     need = fetch_all(conn, """SELECT value FROM analytics.rule_parameter
@@ -127,17 +131,61 @@ def build_readiness(conn: psycopg.Connection, end: date, days: int = 120) -> int
     flags = fetch_df(conn, """SELECT DISTINCT date FROM analytics.medication_message WHERE template = 'readiness'""")
     flag_s = pd.Series(1.0, index=pd.to_datetime(flags["date"])) if not flags.empty else pd.Series(dtype=float)
     p = readiness_params(conn)
-    comp = component_frame(f, status, float(need[0]["value"]) if need else 420.0, flag_s)
+    return component_frame(f, status, float(need[0]["value"]) if need else 420.0, flag_s), p
+
+
+def v2_scores(comp: pd.DataFrame, models: list[dict], p: dict) -> pd.DataFrame:
+    """G1 v2 per day, from the latest model fitted before that day (no look-ahead): score,
+    composite, drivers, which model, and whether that model was adopted. Each model's score is
+    scaled by the spread of its own composite over the 60 days before."""
+    from healthtracker.features.readiness_v2 import LEARNED, v2_composite, v2_drivers
+
+    out = pd.DataFrame(index=comp.index, columns=["score", "composite", "model_on", "adopted", "drivers"],
+                       dtype=object)
+    ons = [pd.Timestamp(m["computed_on"]) for m in models]
+    for i, m in enumerate(models):
+        mask = (comp.index > ons[i]) & ((comp.index <= ons[i + 1]) if i + 1 < len(models) else True)
+        if not mask.any():
+            continue
+        betas = {c: float(m["weights"][c]["beta"]) for c in LEARNED}
+        cm = v2_composite(comp, betas, p)
+        spread = cm.shift(1).rolling(60, min_periods=14).std()
+        sc = pd.Series(100 * stats.norm.cdf(cm / spread.where(spread > 0)), index=comp.index).round()
+        for ts in comp.index[mask]:
+            if pd.isna(sc.loc[ts]):
+                continue
+            out.loc[ts] = [int(sc.loc[ts]), round(float(cm.loc[ts]), 3), m["computed_on"], bool(m["adopted"]),
+                           v2_drivers(comp.loc[ts], betas, p)]
+    return out.dropna(subset=["score"])
+
+
+def build_readiness(conn: psycopg.Connection, end: date, days: int = 120) -> int:
+    from healthtracker.components import component_status, is_live
+    from healthtracker.features.readiness_v2 import models_before
+
+    comp, p = load_components(conn, end, days)
+    if comp.empty:
+        return 0
     sc = scores(comp, p)
+    v2 = v2_scores(comp, models_before(conn, end), p)
+    v2_live = is_live(component_status(conn), "COMP_READINESS_V2")
     rows = []
     for ts in comp.index[comp.index >= pd.Timestamp(end - timedelta(days=days))]:
         s = sc.loc[ts]
         if pd.isna(s["score"]):
             continue
-        rows.append({"date": ts.date(), "score": int(s["score"]), "composite": round(float(s["composite"]), 3),
-                     "n_components": int(s["n_components"]),
-                     "components": {c: (None if pd.isna(v) else round(float(v), 2)) for c, v in comp.loc[ts].items()
-                                    if c != "flag"},
-                     "drivers": drivers(comp.loc[ts], p), "version": "v1"})
+        row = {"date": ts.date(), "score": int(s["score"]), "composite": round(float(s["composite"]), 3),
+               "n_components": int(s["n_components"]),
+               "components": {c: (None if pd.isna(v) else round(float(v), 2)) for c, v in comp.loc[ts].items()
+                              if c != "flag"},
+               "drivers": drivers(comp.loc[ts], p), "version": "v1", "score_v1": int(s["score"]), "v2": None}
+        if ts in v2.index:
+            r2 = v2.loc[ts]
+            row["v2"] = {"score": int(r2["score"]), "composite": float(r2["composite"]), "drivers": r2["drivers"],
+                         "model_on": r2["model_on"].isoformat(), "adopted": bool(r2["adopted"])}
+            if v2_live and r2["adopted"]:  # replaces v1 only when it predicted better and the switch is on
+                row.update(score=int(r2["score"]), composite=float(r2["composite"]), drivers=r2["drivers"],
+                           version="v2")
+        rows.append(row)
     execute(conn, "DELETE FROM analytics.readiness_daily WHERE date >= %s", (end - timedelta(days=days),))
     return upsert(conn, "analytics.readiness_daily", rows, conflict=["date"]) if rows else 0

@@ -158,6 +158,12 @@ def _forecasts(conn, d: date) -> int:
     return build_forecasts(conn, d)
 
 
+def _readiness_model(conn, d: date) -> int:
+    from healthtracker.features.readiness_v2 import build_readiness_model
+
+    return build_readiness_model(conn, d)
+
+
 def _fitness_fatigue(conn, d: date) -> int:
     from healthtracker.features.fitness_fatigue import build_fitness_fatigue
 
@@ -263,6 +269,7 @@ def weekly(d: date | None = None) -> JobReport:
     run_step("weekly", "insights", step(run_insights), report)
     run_step("weekly", "insight_ranking", step(run_ranking), report)  # C1-C4 (shadow)
     run_step("weekly", "fitness_fatigue", step(_fitness_fatigue), report)  # D2 (shadow)
+    run_step("weekly", "readiness_model", step(_readiness_model), report)  # G1 v2 (shadow)
     run_step("weekly", "session_response", step(_session_response), report)  # D5 (shadow)
     run_step("weekly", "long_term", step(_long_term), report)  # E4
     run_step("weekly", "forecasts", step(_forecasts), report)  # G2 (shown once live and better than naive)
@@ -343,6 +350,7 @@ def backfill(start: date, end: date, llm_days: int = 0, weekly_every: int = 7) -
                     run_insights(conn, d)
                     run_ranking(conn, d)
                     _med_analysis(conn, d)
+                    _readiness_model(conn, d)  # G1 v2: each past day is scored by the model fitted before it
                     run_tuning(conn, d)
                     _advice_grading(conn, d)
                     run_promotion(conn, d)
