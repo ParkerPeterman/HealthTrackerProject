@@ -137,7 +137,7 @@ function Rules() {
                     ` · ${r.schedule.planned_on ? `planned ${dayLabel(r.schedule.planned_on)}` : "on evidence"}`}
                 </div>
               </div>
-              {r.schedule?.due && <span className="badge active">due</span>}
+              {r.schedule?.due && <span className="badge tint hue-warn">due</span>}
               <span className={`badge ${r.status === "active" ? "active" : "shadow"}`}>{r.status}</span>
             </button>
             {open === r.rule_id && (

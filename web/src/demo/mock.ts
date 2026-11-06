@@ -288,7 +288,20 @@ const RULES: [string, string, string, string, number, Rule["status"]][] = [
   ["INJ_SEE_PROFESSIONAL", "injury", "Swelling, cannot bear weight, or pain worsening over a week: see a professional", "safety", 0, "active"],
   ["TRAIN_LIFT_PLATEAU", "training", "Estimated 1RM on a main lift flat for several weeks", "heuristic", 21, "shadow"],
   ["SLEEP_CAFFEINE_CUTOFF", "sleep", "Last caffeine later than cutoff (activate only once my data supports it)", "personal_validated", 60, "shadow"],
+  ["COMP_SLEEP_REGULARITY", "analysis", "Show sleep regularity (SRI, midpoint spread, weekend gap) in coaching (E1)", "research", 14, "active"],
+  ["COMP_HRV_BANDS", "analysis", "Show HRV and resting-HR normal bands in coaching (A2)", "research", 28, "shadow"],
+  ["COMP_INSIGHT_RANKING", "analysis", "Ranked weekly insights (1-3) in coaching and the app (C1-C4)", "heuristic", 30, "shadow"],
+  ["COMP_READINESS_V2", "analysis", "Learned readiness weights replace v1 once they predict sessions better (G1 v2)", "research", 90, "shadow"],
 ];
+// Section 14: when the brief switches each shadow part on (what `healthtracker components` prints).
+const SWITCH_SCHEDULE: Record<string, NonNullable<Rule["schedule"]>> = {
+  COMP_SLEEP_REGULARITY: { planned_on: day(-25), note: "E1, live from the start", due: false, evidence: null, gate_met: true },
+  COMP_HRV_BANDS: { planned_on: day(-2), note: "A2 bands, about Dec 1", due: true, gate_met: true,
+    evidence: "1 of 7 days the HRV band and the old z-score disagreed" },
+  COMP_INSIGHT_RANKING: { planned_on: day(34), note: "C1-C4 at the VO2 build", due: false, evidence: null, gate_met: true },
+  COMP_READINESS_V2: { planned_on: null, note: "G1 v2 once it predicts sessions better than v1", due: false, gate_met: false,
+    evidence: "latest model: not enough session days yet" },
+};
 const PARAMS: [string, string, number, number, number][] = [
   ["NUTR_PROTEIN_LOW", "min_g_per_kg", 1.4, 1.2, 2.2], ["NUTR_CALORIE_DRIFT", "max_pct_from_goal", 10, 5, 20],
   ["NUTR_CALORIE_DRIFT", "min_logged_days", 5, 4, 7], ["TRAIN_POST_GAME", "hard_rpe_threshold", 7, 6, 9],
@@ -313,6 +326,7 @@ const rules: Rule[] = RULES.map(([rule_id, domain, description, evidence_level, 
     parameters: PARAMS.filter((x) => x[0] === rule_id).map(([, name, value, min_allowed, max_allowed]) => ({
       name, value, default_value: value, min_allowed, max_allowed,
     })),
+    schedule: SWITCH_SCHEDULE[rule_id] ?? null,
   };
 });
 
