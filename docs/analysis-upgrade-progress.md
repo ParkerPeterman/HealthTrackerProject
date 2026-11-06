@@ -126,6 +126,7 @@ Owner-only, not started on purpose:
 - Cast float parameters to `::numeric` before `round(x, n)` in SQL.
 - `planning/progression.py` holds phase-week counting, deload scheduling, return-to-ultimate stages, and lift steps; `DayState.return_stage` carries the stage into the library's `check()`.
 - `medication.SENSITIVE_TABLES` must list every table commented 'sensitive' (a test checks).
+- Shadow parts fail soft: a new part that runs beside a live one (G1 v2 beside v1, D2's fitted constants beside 42/7, the switch schedule in `/api/rules`, the G1 v2 model in the backfill loop) runs in a savepoint and logs, so its failure never takes the live part down. Each has a test or a recorded check that forces the failure.
 
 ## Testing on this machine
 
