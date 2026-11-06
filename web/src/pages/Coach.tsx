@@ -367,8 +367,10 @@ function WeekInsights() {
   const run = useRun();
   const { data } = useQuery({
     queryKey: ["insights-week"],
-    queryFn: () => api.get<{ live: boolean; insights: { week_start: string; key: string; kind: string; text: string; rating: "new" | "knew" | null }[] }>("/insights/week"),
+    queryFn: () => api.get<{ live: boolean; insights: { week_start: string; key: string; kind: string; text: string; rating: "new" | "knew" | null }[];
+                             ratings?: { new: number; rated: number; target_share: number } }>("/insights/week"),
   });
+  const r = data?.ratings;
   if (!data?.live || !data.insights.length) return null;
   return (
     <div className="card stack" style={{ gap: 10 }}>
@@ -387,6 +389,11 @@ function WeekInsights() {
           </div>
         </div>
       ))}
+      {r && r.rated > 0 && (
+        <div className="tiny muted">
+          {r.new} of {r.rated} rated so far were new to you (the aim is at least {Math.round(r.target_share * 100)}%).
+        </div>
+      )}
     </div>
   );
 }

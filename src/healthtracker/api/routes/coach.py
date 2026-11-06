@@ -289,7 +289,11 @@ def week_insights(conn: psycopg.Connection = Depends(get_conn)) -> dict:
     rows = fetch_all(conn, """SELECT week_start, key, kind, text, rating FROM analytics.weekly_insight WHERE shown
                               AND week_start = (SELECT max(week_start) FROM analytics.weekly_insight)
                               ORDER BY score DESC""") if live else []
-    return to_jsonable({"live": live, "insights": rows})
+    # Section 13's target: at least half of the rated insights "new to me".
+    rated = fetch_one(conn, """SELECT count(*) FILTER (WHERE rating = 'new') AS new, count(rating) AS rated
+                               FROM analytics.weekly_insight WHERE shown""")
+    return to_jsonable({"live": live, "insights": rows,
+                        "ratings": {"new": int(rated["new"]), "rated": int(rated["rated"]), "target_share": 0.5}})
 
 
 class InsightRatingIn(BaseModel):

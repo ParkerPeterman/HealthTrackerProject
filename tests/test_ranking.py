@@ -95,3 +95,26 @@ def test_weekly_ranking_on_the_demo(seeded, tx):
     assert 0 < sum(r["shown"] for r in rows) <= 3
     assert all(r["record"]["actionability"] == float(r["actionability"]) for r in rows)
     assert not any(r["key"].startswith("med") for r in rows)
+
+
+@pytest.mark.db
+def test_week_insights_report_the_new_to_me_share(seeded, db_url):
+    """Section 13: the target is at least half of rated insights "new to me"."""
+    from fastapi.testclient import TestClient
+
+    from healthtracker.api.main import app
+    from healthtracker.db import connect, use_database
+
+    use_database(db_url)
+    with connect() as c:
+        for key, rating in (("test:a", "new"), ("test:b", "knew"), ("test:c", None)):
+            c.execute("""INSERT INTO analytics.weekly_insight (week_start, key, kind, text, p, novelty, actionability,
+                                                               priority, recency, moved, score, shown, record, rating)
+                         VALUES ('2026-01-05', %s, 'effect', 'x', 0.9, 1, 1, 1, 1, false, 1, true, '{}', %s)""",
+                      (key, rating))
+    try:
+        body = TestClient(app).get("/api/insights/week").json()
+        assert body["ratings"]["rated"] >= 2 and body["ratings"]["new"] >= 1 and body["ratings"]["target_share"] == 0.5
+    finally:
+        with connect() as c:
+            c.execute("DELETE FROM analytics.weekly_insight WHERE key LIKE 'test:%'")
