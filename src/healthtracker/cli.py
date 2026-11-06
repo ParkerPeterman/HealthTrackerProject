@@ -277,6 +277,25 @@ def rules_list() -> None:
         typer.echo(f"{r['rule_id']:26} {r['status']:8} {perf}")
 
 
+@app.command()
+def components() -> None:
+    """Shadow parts and when the brief switches each on, against my season; due = ready for a look."""
+    from healthtracker.components import schedule
+    from healthtracker.pipeline.jobs import local_today
+
+    with connect() as conn:
+        rows = schedule(conn, local_today())
+    for r in rows:
+        when = r["planned_on"].strftime("%b %d %Y") if r["planned_on"] else "on evidence"
+        flag = "DUE" if r["due"] else ("" if r["status"] != "shadow" else
+                                       f"needs {r['needs_days']} days" if not r["gate_met"] else "")
+        typer.echo(f"{r['code']:24} {r['status']:7} {when:12} {flag:16} {r['note']}")
+        if r["evidence"] and r["status"] == "shadow":
+            typer.echo(f"{'':24} shadow log: {r['evidence']}")
+    if any(r["due"] for r in rows):
+        typer.echo("\nDue: look at the shadow log (Coach > history), then `healthtracker rules set <CODE> active`.")
+
+
 @rules_app.command("set")
 def rules_set(rule_id: str, status_: str = typer.Argument(..., metavar="STATUS", help="shadow|active|retired")) -> None:
     from healthtracker.stats.promotion import set_status

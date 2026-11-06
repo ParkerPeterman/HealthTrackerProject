@@ -133,8 +133,11 @@ function Rules() {
                 <div className="meta">
                   {r.rule_id} · {r.evidence_level}
                   {r.n_actions ? ` · followed ${Math.round((r.followed_rate ?? 0) * 100)}% of ${r.n_actions}` : ""}
+                  {r.schedule && r.status === "shadow" &&
+                    ` · ${r.schedule.planned_on ? `planned ${dayLabel(r.schedule.planned_on)}` : "on evidence"}`}
                 </div>
               </div>
+              {r.schedule?.due && <span className="badge active">due</span>}
               <span className={`badge ${r.status === "active" ? "active" : "shadow"}`}>{r.status}</span>
             </button>
             {open === r.rule_id && (
@@ -146,6 +149,12 @@ function Rules() {
                   </div>
                 )}
                 {r.min_history_days > 0 && <div className="tiny muted">Needs {r.min_history_days} days of history before it runs.</div>}
+                {r.schedule && r.status === "shadow" && (
+                  <div className="small">
+                    {r.schedule.note}.{r.schedule.due ? " Due for a look: check the evidence, then switch it on." : ""}
+                    {r.schedule.evidence && <div className="tiny muted">Last week: {r.schedule.evidence}</div>}
+                  </div>
+                )}
                 {r.parameters.map((p) => (
                   <ParamRow key={p.name} rule={r.rule_id} p={p} />
                 ))}

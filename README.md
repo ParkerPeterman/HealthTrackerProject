@@ -242,6 +242,7 @@ healthtracker demo [--days 180] [--llm-days N]
 healthtracker evaluate [--days 14,30,60,120] [--out FILE]   # methods vs planted effects, run times
 healthtracker proposals list | approve param|status ID | reject ...
 healthtracker rules list | set RULE_ID shadow|active|retired
+healthtracker components                                    # shadow parts: planned date, data gate, evidence, DUE
 healthtracker experiment HYPOTHESIS_ID [--start D] [--days 14]
 healthtracker status | coverage [--days N]
 ```

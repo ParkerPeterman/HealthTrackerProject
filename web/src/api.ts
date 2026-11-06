@@ -352,6 +352,8 @@ export interface Rule {
   avg_outcome_when_followed: number | null;
   avg_outcome_when_not: number | null;
   parameters: { name: string; value: number; default_value: number; min_allowed: number | null; max_allowed: number | null }[];
+  /** Section 14: when the brief switches this shadow part on, against my season (null = not scheduled). */
+  schedule?: { planned_on: string | null; note: string; due: boolean; evidence: string | null; gate_met: boolean } | null;
 }
 
 export interface TargetProposal {

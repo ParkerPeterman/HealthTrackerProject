@@ -173,6 +173,10 @@ The weekly shadow log (`stats/shadow_log.py`, on the Coach history tab) shows wh
 logic disagreed: HRV z vs the band, the two illness checks, the daily adjustment on planned hard
 days, readiness vs the old flags, learned vs equal readiness weights, OLS vs B1, and raw vs fair
 grading. That is the evidence for switching something on; the log changes nothing itself.
+`healthtracker components` puts the two together: each switch's planned date from the brief's
+phasing table, read against my own season (a later first game moves the pre-season parts with
+it), its data gate, and the latest shadow-log line. It marks a switch DUE and leaves the
+switching to me.
 
 ## Readiness: equal weights until learned ones earn it
 

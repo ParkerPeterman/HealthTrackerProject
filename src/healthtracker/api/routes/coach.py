@@ -195,8 +195,13 @@ def rules(conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
                               FROM analytics.rule r LEFT JOIN analytics.v_rule_performance p USING (rule_id)
                               ORDER BY r.domain, r.rule_id""")
     params = fetch_all(conn, "SELECT * FROM analytics.rule_parameter ORDER BY rule_id, name")
+    from healthtracker.components import schedule
+
+    sched = {s["code"]: s for s in schedule(conn, local_date(conn))}  # section 14: when each shadow part is due
     for r in rows:
         r["parameters"] = [p for p in params if p["rule_id"] == r["rule_id"]]
+        s = sched.get(r["rule_id"])
+        r["schedule"] = ({k: s[k] for k in ("planned_on", "note", "due", "evidence", "gate_met")} if s else None)
     return to_jsonable(rows)
 
 
