@@ -29,6 +29,22 @@ def test_recovers_directions_and_beats_naive():
     assert fc["lo80"] < fc["pace_s_km"] < fc["hi80"] and fc["weeks"] == 8
 
 
+def test_forecast_intervals_are_conservative():
+    """Section 13 calibration: one-run-ahead 80% intervals hold the next run at least 80% of the
+    time. They hold it closer to 90%: the shared B1 priors (residual variance centred on the whole
+    outcome variance, effects shrunk toward +-0.2 SD) overstate the noise by about a fifth."""
+    from scipy import stats
+
+    z, hits, n = stats.norm.ppf(0.9), 0, 0
+    for seed in range(1, 5):
+        a = ff._rows(ff.frame(*simulate(days=200, seed=seed)))
+        for k in range(ff.MIN_RUNS, len(a), 2):
+            mean, sd = ff.predict(ff._fit(a[:k]), a[k, 1], a[k, 2])
+            hits += abs(a[k, 0] - mean) <= z * sd
+            n += 1
+    assert 0.8 <= hits / n <= 0.97
+
+
 def test_impulse_decays():
     s = ff.impulse(pd.Series([100.0] + [0.0] * 42), 42)
     assert s.iloc[0] == 100 and s.iloc[42] == pytest.approx(100 * np.exp(-1), rel=1e-6)

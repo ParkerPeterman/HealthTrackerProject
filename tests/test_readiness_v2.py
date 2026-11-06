@@ -84,6 +84,22 @@ def test_no_weight_goes_negative():
     assert m["coef"][r2.LEARNED.index("soreness")] == 0
 
 
+def test_weight_intervals_cover_about_eighty_percent():
+    """Section 13 calibration: true weights near the prior (0-0.3), 80% intervals hold the truth
+    about 80% of the time (a dropped weight counts as a miss)."""
+    rng = np.random.default_rng(0)
+    hits = tot = 0
+    for s in range(60):
+        true = {c: float(rng.uniform(0.0, 0.3)) for c in r2.LEARNED}
+        _, df = history(true, days=150, seed=1000 + s)
+        Z, _, y = arrays(df)
+        w = r2.weights_record(r2.learn(Z, y, r2.prior_means(P)))
+        for c in r2.LEARNED:
+            tot += 1
+            hits += (not w[c].get("dropped")) and w[c]["lo80"] <= true[c] / y.std(ddof=1) <= w[c]["hi80"]
+    assert 0.7 <= hits / tot <= 0.9
+
+
 def test_priors_keep_v2_near_v1_with_little_data():
     _, df = history({}, days=50, seed=3)
     Z, _, y = arrays(df)

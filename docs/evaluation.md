@@ -54,6 +54,13 @@ Budgets: nightly about 2 minutes, weekly about 10 (brief section 13).
   would need a negative weight. It predicts held-out sessions no better than v1 (MAE 0.53 vs
   0.53), so v1 stays. The plant is in one of three outcome parts, and readiness predicts single
   sessions only weakly, so this is the expected result at four months.
+- **Calibration (simulation, outside the demo).** B1's and G2's 80% intervals hold the truth
+  about 80% of the time (tests in `test_bayes.py`, `test_forecast.py`), and so do G1 v2's
+  learned weights (79%, counting a dropped weight as a miss). D2's one-run-ahead intervals are
+  conservative: about 89% with fixed constants and 89-94% with fitted ones. The shared B1
+  priors overstate D2's noise by about a fifth: the residual variance is centred on the whole
+  outcome variance, and the effects are shrunk toward 0.2 SD when the true ones are larger.
+  Wide rather than overconfident, so left as is; D2 is for comparing plans.
 - **D2's fitted time constants don't come into play here.** Their gate is about five months of
   runs (150 days), past the longest demo; with the gate lowered on 90 days the evidence over the
   grid is flat and 42/7 stay.

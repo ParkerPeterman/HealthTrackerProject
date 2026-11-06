@@ -67,8 +67,9 @@ Everything in the brief's "Next" list is built. What remains is gated on data or
 2. ~~D2 with fitted time constants~~ (done, 049; the gate opens by itself at about 5 months of runs).
 3. ~~G1 v2~~ (done, 050; adopts by itself once it predicts sessions clearly better, shown once `COMP_READINESS_V2` is on).
 4. ~~C4's interaction definition~~ (done: hard sessions by RPE/game or a big load day).
-5. Switch shadow components on by the phasing table (`healthtracker components` shows what is due) (A2 bands and E3 about Dec 1; C1-C4, G1 v1,
+5. Switch shadow components on by the phasing table (A2 bands and E3 about Dec 1; C1-C4, G1 v1,
    F4 on Jan 4; F7, D5, G3 on Feb 8; G2 in spring), each after a look at the shadow log.
+   `healthtracker components` (or the Coach rules list) shows what is due.
 
 ## Judgment calls to raise with the owner
 
@@ -87,6 +88,7 @@ Everything in the brief's "Next" list is built. What remains is gated on data or
 - **Tests now set HOME_LAT/HOME_LON** to the demo's synthetic home point so demo sessions get the synthetic weather (needed once the heat effect was planted).
 - **D2 fitted time constants need a clear win.** "Any lower backtest error" swapped 42/7 for another pair in 58-70% of simulated histories whose true constants were 42/7, so the rule is a 5% lower error *and* P >= 0.95 paired run by run (8-15% false swaps; 60/3 found in 80% of histories at 150 days and all at 240; low power when the truth is close, e.g. 35/10 or 28/14, where the backtest errors differ by about 1%). The fitness constant is poorly identified (the Banister literature says the same); the fatigue constant lands within a grid step. On the 90-day demo with the gate lowered the evidence is flat (best 42/7 at 9% weight) and nothing is adopted; the demo plants no time constants.
 - **G1 v2 weights can't go negative.** On the 180-day demo an unconstrained fit gave soreness and sleep regularity negative weights (sore = more ready). Every component is signed so higher means more ready, so a negative weight is dropped and the rest refitted. The replacement rule is 2% lower MAE and P >= 0.95 paired by day: in simulation at most 7% false swaps (no signal, or equal weights right); a two-component signal is found in about a sixth of histories at 3 months and half at 8. On the demo (feel planted on sleep and HRV, diluted by effort and pace, which carry no plant) v2 learns energy 3.8x, sleep 1.9x, HRV 1.3x by 180 days, the rest dropped, but is not adopted (P 0.30): readiness predicts single sessions weakly. The medication flag keeps v1's fixed weight relative to the learned ones; flagged days are out of the learning. "The owner's rating" is read as Garmin feel on the session (the advice rating is about the message, not the session).
+- **D2's intervals are conservative** (about 89% coverage for a stated 80%, fixed or fitted constants): the shared B1 priors overstate its noise by about a fifth. Left as is rather than retuning B1's priors to one simulation; `test_forecast_intervals_are_conservative` pins it.
 - **G3 reports shifts about three weeks late** (it waits 20 measurements to be sure). Dose-change links are stored in the sensitive table but shown nowhere: showing them needs a new approved wording (a ninth template), which is the owner's call.
 
 ## Decisions already made by the owner
