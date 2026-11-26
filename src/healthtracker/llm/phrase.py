@@ -2,7 +2,7 @@
 
 Two small calls (training/recovery, nutrition), each with a compact JSON input
 and JSON-schema output. Every output is checked (guard.py); on any failure or
-if Ollama is down, a deterministic template is used and the reason is stored.
+if the LLM is down (either provider), a deterministic template is used and the reason is stored.
 """
 
 from __future__ import annotations

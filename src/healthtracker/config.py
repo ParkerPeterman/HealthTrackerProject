@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,11 +29,16 @@ class Settings(BaseSettings):
     garmin_fetch_fit: bool = True        # download FIT for runs to get per-second HR
     garmin_lookback_days: int = 3        # nightly re-fetch window (late syncs, edits)
 
-    # Local LLM (Ollama). The LLM only phrases decisions; disable to always use the template.
+    # LLM. It only phrases decisions; disable to always use the template.
+    # Provider "ollama" talks to OLLAMA_URL's /api/chat; "openai" talks to any OpenAI-compatible
+    # server at LLM_BASE_URL (…/v1) via /chat/completions. The same payload goes to either.
     llm_enabled: bool = True
+    llm_provider: Literal["ollama", "openai"] = "ollama"
     ollama_url: str = "http://127.0.0.1:11434"
+    llm_base_url: str | None = None
+    llm_api_key: str = "none"
     llm_model: str = "qwen3:14b"
-    llm_timeout_s: float = 180.0
+    llm_timeout_s: float = 120.0
     prompt_version: str = "v2"  # v2: no medication, painkillers, or extra water (H4)
 
     # Weather (Open-Meteo, A7). Home location is rounded to 0.1 degree (about 11 km) before any

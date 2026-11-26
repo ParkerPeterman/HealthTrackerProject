@@ -47,7 +47,7 @@ flowchart TD
 | `features` | `daily_features` (baselines over *eligible* days, HRV/RHR bands), session features, one internal load scale with sprint/jump/shoulder channels, aerobic fitness trend, sleep regularity, readiness with weights learned from how sessions went (shadow), long-term trends and WHO minutes |
 | `rules` | Starter rules + experiment protocol; thresholds live in the DB so they can be tuned without code |
 | `recommend` | Recommendation, structured actions, next-day grading, fair (state-matched) grading of advice |
-| `llm` | Ollama client, two small calls (training, nutrition), output guard, template fallback |
+| `llm` | Ollama or OpenAI-compatible client, two small calls (training, nutrition), output guard, template fallback |
 | `stats` | Bayesian effect estimates with cited priors, doses, lags, and pooling; the OLS + HAC cross-check; exploratory screens; randomized block experiments; ranked insights; forecasts backtested against naive; change points; unusual-day explanations; a weekly shadow-comparison log |
 | `planning` | Season phases, a session library, and next week's plan: spacing, ramp caps, progression and deloads, WHO minutes, return to ultimate, weather, injury restrictions |
 | `medication` | Adherence tracking with approved message templates only; sensitive tables kept away from the LLM |
@@ -69,6 +69,20 @@ ollama pull qwen3:14b              # ~9 GB; any model works, set LLM_MODEL in .e
 cp .env.example .env               # then set POSTGRES_PASSWORD (and the URLs that contain it)
 docker compose up -d               # db, migrations, api + app, dashboard, scheduler
 ```
+
+To use another LLM server instead of Ollama (llama.cpp, vLLM, LM Studio, or anything else that
+speaks the OpenAI chat API with `response_format` JSON schemas), set these in `.env`:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LLM_PROVIDER` | `ollama` | `ollama` (native API at `OLLAMA_URL`) or `openai` |
+| `LLM_BASE_URL` | none | OpenAI-compatible base URL ending in `/v1`, e.g. `http://192.168.40.21:9292/v1` |
+| `LLM_MODEL` | `qwen3:14b` | Model name the server expects |
+| `LLM_API_KEY` | `none` | Sent as `Authorization: Bearer …`; most local servers ignore it |
+| `LLM_TIMEOUT_S` | `120` | Per-request timeout; a timeout or connection error means "LLM down" and the template is used |
+
+Either way the same checks, single retry, and template fallback apply, and the reason lands in
+`analytics.recommendation.llm_check`. Thinking models are fine: only the final `content` is read.
 
 - Tracker app: http://localhost:8000
 - Dashboard: http://localhost:8501
@@ -276,7 +290,10 @@ calls exist, and any other needs sign-off:
   machine. Leave `HOME_LAT` unset (or `WEATHER_ENABLED=false`) and no weather call is made. Weather data
   by [Open-Meteo.com](https://open-meteo.com/).
 
-Medication data (the daily check) is sensitive: it never reaches the LLM or the recommendation
+The LLM is local by default (Ollama on this machine). With `LLM_PROVIDER=openai`, the day's status
+and actions go to `LLM_BASE_URL`; point it only at a machine you control, never a hosted API.
+
+Medication data (the daily check) is sensitive: it never reaches the LLM (with either provider) or the recommendation
 snapshot, the dashboard shows it only behind an opt-in toggle, demo screenshots never include it, and
 there are no push notifications (web push would route through Google's or Apple's servers). The
 sensitive tables are listed in `medication.SENSITIVE_TABLES`; a change point near a dose change is
